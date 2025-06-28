@@ -1,5 +1,5 @@
 # RAG.py  ── python3 RAG.py ───────────────────────────────────────────
-import json, gc, torch, faiss, os, time
+import json, gc, torch, faiss, os, time, sys
 from tqdm.auto import tqdm
 from sentence_transformers import SentenceTransformer
 from transformers import (AutoTokenizer, AutoModelForCausalLM,
@@ -56,49 +56,42 @@ def build_prompt(q, cs):
     return (f"다음 질문에 어문 규범에 맞는 정답과 이유를 제시하라.\n"
             f"{refs}\n\n질문: {q}\n답:")
 
-print("▣ Test 생성 시작…")
 
-warm_inp = tok("warm-up!", return_tensors="pt").to(DEVICE_LLM)
-with torch.no_grad():
-    _ = model.generate(**warm_inp, max_new_tokens=1)
+def heartbeat(msg):
+    sys.stdout.write(msg + "\n"); sys.stdout.flush()
 
-stream = None
-total   = len(test)
-pbar    = tqdm(total=total, desc="Generating", ncols=80)
+print("▣ Test 생성 시작…"); heartbeat(" ")
 
+_ = model.generate(**tok("warm-up", return_tensors="pt").to("mps"),
+                   max_new_tokens=1)
+
+tot = len(test)
+pbar = tqdm(total=tot, ncols=90, desc="Generating")
 preds = []
 
-for idx, ex in enumerate(test, 1):
-    q = ex["input"]["question"]
-    ctxs = ctx(q, k=6)
-    prompt = build_prompt(q, ctxs)
+for ex in test:
+    q        = ex["input"]["question"]
+    prompt   = build_prompt(q, ctx(q, k=4))
+    inp      = tok(prompt, return_tensors="pt").to("mps")
 
-    inp = tok(prompt, return_tensors="pt").to(DEVICE_LLM)
-
-    t0 = time.time()
+    start = time.time(); last_ping = start
     with torch.no_grad():
-        out = model.generate(
-            **inp,
-            generation_config=gen_cfg,
-            streamer=stream
-        )
-    infer_s = time.time() - t0
+        out = model.generate(**inp, generation_config=gen_cfg)
 
-    gen_tok = out.shape[-1] - inp.input_ids.shape[-1]
-    ans = tok.decode(out[0], skip_special_tokens=True).split("답:", 1)[-1].strip()
+    end   = time.time()
 
-    preds.append({
-        "id": ex.get("id"),
-        "input": ex["input"],
-        "output": {"answer": ans}
-    })
+    gen_tok   = out.shape[-1] - inp.input_ids.shape[-1]
+    tok_speed = gen_tok / (end - start + 1e-9)
 
+    heartbeat(f"[sample {len(preds)+1}/{tot}] {gen_tok} tok "
+              f"│ {end-start:4.1f}s │ {tok_speed:.2f} tok/s")
+
+    ans = tok.decode(out[0], skip_special_tokens=True).split("답:",1)[-1].strip()
+    preds.append({"id": ex["id"], "input": ex["input"],
+                  "output": {"answer": ans}})
     pbar.update(1)
-    pbar.set_postfix(idx=f"{idx}/{total}", tok=gen_tok, t=f"{infer_s:4.1f}s")
-    pbar.refresh()
-
-pbar.close()
-print("✓ inference done!")
+    pbar.set_postfix(tok=gen_tok, spd=f"{tok_speed:.2f}/s")
+pbar.close(); print("✓ inference done")
 
 with open(OUT_PATH, "w", encoding="utf-8") as f:
     json.dump(preds, f, ensure_ascii=False, indent=2)
