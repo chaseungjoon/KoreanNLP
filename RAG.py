@@ -1,9 +1,11 @@
 # RAG.py  ── python3 RAG.py ───────────────────────────────────────────
-import json, gc, torch, faiss
+import json, gc, torch, faiss, os, time
 from tqdm.auto import tqdm
 from sentence_transformers import SentenceTransformer
 from transformers import (AutoTokenizer, AutoModelForCausalLM,
                           GenerationConfig, TextStreamer)
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 TRAIN_PATH = "data/korean_language_rag_V1.0_train.json"
 TEST_PATH  = "data/korean_language_rag_V1.0_test.json"
@@ -56,40 +58,44 @@ def build_prompt(q, cs):
 
 print("▣ Test 생성 시작…")
 
-warm_inp = tok("워밍업", return_tensors="pt").to(DEVICE_LLM)
+warm_inp = tok("warm-up!", return_tensors="pt").to(DEVICE_LLM)
 with torch.no_grad():
     _ = model.generate(**warm_inp, max_new_tokens=1)
 
-streamer = TextStreamer(tok, skip_prompt=True)     # 토큰 실시간 출력
-tot  = len(test)
-pbar = tqdm(total=tot, desc="Generating")
+stream = None
+total   = len(test)
+pbar    = tqdm(total=total, desc="Generating", ncols=80)
 
 preds = []
 
-for ex in test:
-    question = ex["input"]["question"]
-    contexts = topk_ctx(question, k=6)
-    prompt   = build_prompt(question, contexts)
+for idx, ex in enumerate(test, 1):
+    q = ex["input"]["question"]
+    ctxs = ctx(q, k=6)
+    prompt = build_prompt(q, ctxs)
 
     inp = tok(prompt, return_tensors="pt").to(DEVICE_LLM)
 
+    t0 = time.time()
     with torch.no_grad():
-        out = model.generate(**inp,
-                             generation_config=gen_cfg,
-                             streamer=streamer)
+        out = model.generate(
+            **inp,
+            generation_config=gen_cfg,
+            streamer=stream
+        )
+    infer_s = time.time() - t0
 
     gen_tok = out.shape[-1] - inp.input_ids.shape[-1]
-    answer  = tok.decode(out[0], skip_special_tokens=True) \
-                .split("답:", 1)[-1].strip()
+    ans = tok.decode(out[0], skip_special_tokens=True).split("답:", 1)[-1].strip()
 
     preds.append({
         "id": ex.get("id"),
         "input": ex["input"],
-        "output": {"answer": answer}
+        "output": {"answer": ans}
     })
 
     pbar.update(1)
-    pbar.set_postfix({"new_tok": gen_tok})
+    pbar.set_postfix(idx=f"{idx}/{total}", tok=gen_tok, t=f"{infer_s:4.1f}s")
+    pbar.refresh()
 
 pbar.close()
 print("✓ inference done!")
