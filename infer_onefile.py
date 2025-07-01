@@ -67,7 +67,7 @@ with torch.no_grad():
     for batch in tqdm.tqdm(dl,total=len(dl)):
         batch={k:v.to(args.device) for k,v in batch.items()}
         gen=model.generate(**batch,max_new_tokens=200,eos_token_id=terminators,
-                           pad_token_id=tk.eos_token_id,temperature=0.3,top_p=0.9,repetition_penalty=1.05)
+                           pad_token_id=tk.eos_token_id,repetition_penalty=1.05)
         for b,g in zip(batch["input_ids"],gen):
             txt=tk.decode(g[b.shape[-1]:],skip_special_tokens=True).strip()
             for p in("답변:","답:","Answer:","answer:"):
