@@ -17,7 +17,7 @@ cd this-repo-name
 pip install -r requirements.txt
 ```
 
-### 3) 훈련 및 inference 실행
+### 3) 훈련 및 inference 실행 (CUDA GPU 필요)
 ```bash
 chmod +x run
 ./run
