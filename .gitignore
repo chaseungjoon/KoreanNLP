@@ -2,3 +2,7 @@
 .DS_Store
 __pycache__
 *.jsonl
+hf_token.txt
+RAG_2.py
+RAG_infer.py
+*.pdf

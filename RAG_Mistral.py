@@ -1,5 +1,5 @@
 """
-python RAG_2.py \
+python RAG_Mistral.py \
   --train korean_language_rag_V1.0_train.json \
   --dev   korean_language_rag_V1.0_dev.json \
   --test  korean_language_rag_V1.0_test.json \
@@ -10,16 +10,11 @@ python RAG_2.py \
 
 import argparse, json, os, tqdm, torch
 from huggingface_hub import login
-from transformers import (
-    AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig,
-    Trainer, TrainingArguments
-)
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, Trainer, TrainingArguments
 from peft import prepare_model_for_kbit_training, LoraConfig
 from torch.utils.data import Dataset
 
-with open("hf_token.txt", "r") as f:
-  hf_token=f.readline().strip()
-
+hf_token = os.getenv("HF_TOKEN")
 login(hf_token)
 
 PROMPT = "You are a helpful AI assistant. 당신은 한국어 어문 규범 전문가입니다."
