@@ -11,7 +11,10 @@ INST={
     "서술형":"[지침] 완전한 문장으로 서술하십시오."
 }
 
-hf_token = "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"
+with open("hf_token.txt", "r") as f:
+    hf_token = f.readline().strip()
+
+#hf_token = "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"
 
 class TestSet(Dataset):
     def __init__(self,path,tk):
