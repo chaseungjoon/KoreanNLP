@@ -1,4 +1,4 @@
-pip install --upgrade torch transformers bitsandbytes peft datasets accelerate huggingface-hub &&
+pip install --upgrade torch transformers sentence-transformers faiss-cpu bitsandbytes peft datasets accelerate huggingface-hub &&
 python RAG_Mistral.py \
   --train korean_language_rag_V1.0_train.json \
   --dev   korean_language_rag_V1.0_dev.json \

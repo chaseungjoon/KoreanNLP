@@ -6,5 +6,4 @@ __pycache__
 hf_token.txt
 RAG_2.py
 RAG_3.py
-RAG_infer.py
 *.pdf

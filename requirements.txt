@@ -6,3 +6,5 @@ datasets
 accelerate
 tqdm
 huggingface-hub
+sentence-transformers
+faiss-cpu
