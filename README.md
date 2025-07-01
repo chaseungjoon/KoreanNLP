@@ -12,8 +12,8 @@ export HF_TOKEN="hf_XXXXXXXXXXXXXXX"
 ### 2) 다운로드
 
 ```bash
-git clone this-repo-url
-cd this-repo-name
+git clone https://github.com/chaseungjoon/KoreanNLP.git
+cd KoreanNLP
 pip install -r requirements.txt
 ```
 
