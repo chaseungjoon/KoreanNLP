@@ -128,7 +128,7 @@ def main():
             json.dump(it, fout, ensure_ascii=False)
             fout.write("\n")
 
-    print("✅ Saved →", os.path.abspath(args.output))
+    print("Saved to", os.path.abspath(args.output))
 
 if __name__=="__main__":
     main()

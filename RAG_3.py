@@ -1,5 +1,5 @@
 """
-python RAG_Mistral.py \
+python RAG_3.py \
   --train korean_language_rag_V1.0_train.json \
   --dev   korean_language_rag_V1.0_dev.json \
   --test  korean_language_rag_V1.0_test.json \
@@ -13,8 +13,11 @@ from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, Trainer, TrainingArguments
 from peft import prepare_model_for_kbit_training, LoraConfig
 from torch.utils.data import Dataset
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-hf_token = os.getenv("HF_TOKEN")
+with open("hf_token.txt", "r") as f:
+  hf_token=f.readline().strip()
 login(hf_token)
 
 PROMPT = "You are a helpful AI assistant. 당신은 한국어 어문 규범 전문가입니다."
@@ -26,29 +29,37 @@ INST = {
     "서술형": "[지침] 완전한 문장으로 서술하십시오."
 }
 
+with open("reference.txt", encoding="utf-8") as f:
+    ref_texts = [line.strip() for line in f if line.strip()]
+vectorizer = TfidfVectorizer().fit(ref_texts)
+ref_vecs = vectorizer.transform(ref_texts)
+
+def retrieve_docs(question, topk=3):
+    q_vec = vectorizer.transform([question])
+    scores = cosine_similarity(q_vec, ref_vecs)[0]
+    top_indices = scores.argsort()[::-1][:topk]
+    return [ref_texts[i] for i in top_indices]
+
 class RAGDataset(Dataset):
     def __init__(self, path, tokenizer, train=True):
         data = json.load(open(path, encoding="utf-8"))
-        self.tokenizer = tokenizer
         self.input_ids_list = []
         self.attention_masks_list = []
         self.labels_list = []
         for it in data:
             qt, q = it["input"]["question_type"], it["input"]["question"]
+            references = retrieve_docs(q)
             ctx = PROMPT + "\n" + INST.get(qt, "") + "\n\n[질문]\n" + q
+            ctx += "\n\n[참고 문서]\n" + "\n".join(references)
             if train and it.get("output", {}).get("answer"):
                 ctx += "\n\n" + it["output"]["answer"]
-            toks = tokenizer(ctx,
-                 max_length=512, truncation=True, padding="max_length",
-                 return_tensors="pt")
+            toks = tokenizer(ctx, max_length=512, truncation=True, padding="max_length", return_tensors="pt")
             input_ids = toks.input_ids.squeeze()
             self.input_ids_list.append(input_ids)
             self.attention_masks_list.append(toks.attention_mask.squeeze())
             self.labels_list.append(input_ids.clone())
 
-    def __len__(self):
-        return len(self.input_ids_list)
-
+    def __len__(self): return len(self.input_ids_list)
     def __getitem__(self, i):
         return {
             "input_ids": self.input_ids_list[i],
@@ -66,7 +77,7 @@ def main():
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
 
-    tk = AutoTokenizer.from_pretrained(args.model_id)
+    tk = AutoTokenizer.from_pretrained(args.model_id, token=hf_token)
     tk.pad_token = tk.eos_token
 
     bnb = BitsAndBytesConfig(
@@ -74,7 +85,7 @@ def main():
         bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16
     )
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id, device_map="auto", quantization_config=bnb
+        args.model_id, device_map="auto", quantization_config=bnb, token=hf_token
     )
     model = prepare_model_for_kbit_training(model)
 
@@ -115,7 +126,9 @@ def main():
     with open(args.output, "w", encoding="utf-8") as fout:
         for it in tqdm.tqdm(test_data):
             qt, q = it["input"]["question_type"], it["input"]["question"]
+            references = retrieve_docs(q)
             prompt = PROMPT + "\n" + INST.get(qt, "") + "\n\n[질문]\n" + q
+            prompt += "\n\n[참고 문서]\n" + "\n".join(references)
             enc = tk(prompt, truncation=True, return_tensors="pt").to(args.device)
             gen = model.generate(**enc, max_new_tokens=200, pad_token_id=tk.eos_token_id)
             txt = tk.decode(gen[0, enc.input_ids.shape[-1]:], skip_special_tokens=True).strip()
@@ -125,5 +138,5 @@ def main():
 
     print("Saved to", os.path.abspath(args.output))
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
