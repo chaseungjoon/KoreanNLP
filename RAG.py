@@ -1,128 +1,88 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-CPU-only inference + 진행 상황 표시(스피너 · progress bar · heartbeat)
+pip install torch tqdm transformers bitsandbytes
+python RAG.py \
+  --input  /content/data/korean_language_rag_V1.0_test.json \
+  --output /content/submission.json \
+  --model_id mistralai/Mistral-7B-Instruct-v0.2 \
+  --device cuda
 """
 
-import os, sys, time, json, gc, warnings, threading, itertools
-import torch, faiss
-from tqdm.auto import tqdm
-from sentence_transformers import SentenceTransformer
-from transformers import (AutoTokenizer, AutoModelForCausalLM,
-                          GenerationConfig, TextStreamer)
+import argparse, json, os, tqdm, torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
-# ── 환경 설정 ────────────────────────────────────────────
-os.environ["TOKENIZERS_PARALLELISM"]      = "false"
-os.environ["HF_HUB_DISABLE_PROGRESS_BAR"] = "1"
-warnings.filterwarnings("ignore", category=UserWarning)
+PROMPT_SYSTEM="You are a helpful AI assistant. 당신은 한국어 어문 규범 전문가입니다. 질문을 읽고 올바른 답과 이유를 제시하세요."
+INST={
+    "선택형":"[지침] 보기 중 올바른 표현을 골라 “○○가 옳다. 이유: …”로 답하십시오.",
+    "교정형":"[지침] 틀린 부분을 고친 뒤 “○○가 옳다. 이유: …”로 답하십시오.",
+    "선다형":"[지침] 가장 적절한 보기 번호만 숫자로 답하십시오.",
+    "단답형":"[지침] 두 단어 이내로 간단히 답하십시오.",
+    "서술형":"[지침] 완전한 문장으로 서술하십시오."
+}
 
-DATA_DIR = "data"
-TRAIN_PATH = f"{DATA_DIR}/korean_language_rag_V1.0_train.json"
-TEST_PATH  = f"{DATA_DIR}/korean_language_rag_V1.0_test.json"
-OUT_PATH   = "submission_cpu.json"
+with open("data/hf_token.txt", "r") as f:
+    hf_token = f.readline().strip()
 
-LLM_NAME       = "mistralai/Mistral-7B-Instruct-v0.2"
-RETRIEVER_NAME = "snunlp/KR-SBERT-V40K-klueNLI-augSTS"
+class TestSet(Dataset):
+    def __init__(self,path,tk):
+        self.raw=json.load(open(path,encoding="utf-8"))
+        self.tk=tk
+        self.enc=[]
+        for ex in self.raw:
+            qt=ex["input"]["question_type"]
+            q=ex["input"]["question"]
+            chat=[{"role":"system","content":PROMPT_SYSTEM},
+                  {"role":"user","content":f"{INST.get(qt,'')}\n\n[질문]\n{q}"}]
+            self.enc.append(
+                tk.apply_chat_template(chat,add_generation_prompt=True,return_tensors="pt",enable_thinking=False)[0]
+            )
+    def __len__(self):return len(self.enc)
+    def __getitem__(self,idx):return self.enc[idx]
 
-DEVICE_LLM = "cpu"
+class Collator:
+    def __init__(self,tk):self.tk=tk
+    def __call__(self,batch):
+        ids=torch.nn.utils.rnn.pad_sequence(batch,batch_first=True,padding_value=self.tk.pad_token_id)
+        return{"input_ids":ids,"attention_mask":ids.ne(self.tk.pad_token_id)}
 
-def jload(p):  return json.load(open(p, encoding="utf-8"))
-def heartbeat(msg: str):
-    sys.stdout.write(msg + "\n"); sys.stdout.flush()
+ap=argparse.ArgumentParser()
+ap.add_argument("--input",required=True)
+ap.add_argument("--output",required=True)
+ap.add_argument("--model_id",required=True)
+ap.add_argument("--tokenizer")
+ap.add_argument("--device",default="cuda")
+args=ap.parse_args()
 
-train, test = jload(TRAIN_PATH), jload(TEST_PATH)
-corpus = [ex["input"]["question"] + " " + ex["output"]["answer"]
-          for ex in train]
+bnb=BitsAndBytesConfig(load_in_4bit=True,bnb_4bit_quant_type="nf4",bnb_4bit_use_double_quant=True,bnb_4bit_compute_dtype=torch.float16)
+mem={0:"13GiB","cpu":"32GiB"}
+model_kwargs=dict(device_map="auto",quantization_config=bnb,max_memory=mem)
+if hf_token:model_kwargs["use_auth_token"]=hf_token
+model=AutoModelForCausalLM.from_pretrained(args.model_id,**model_kwargs)
+model.eval()
 
-print("Imbedding SBERT")
-retriever = SentenceTransformer(RETRIEVER_NAME, device="cpu")
-emb = retriever.encode(corpus,
-                       batch_size=16,
-                       convert_to_numpy=True,
-                       show_progress_bar=True)
-faiss.normalize_L2(emb)
-index = faiss.IndexFlatIP(emb.shape[1]); index.add(emb)
+tok_id=args.tokenizer or args.model_id
+tk_kwargs={"use_auth_token":hf_token} if hf_token else {}
+tk=AutoTokenizer.from_pretrained(tok_id,**tk_kwargs)
+tk.pad_token=tk.eos_token
+terminators=[tk.eos_token_id,tk.convert_tokens_to_ids("<|eot_id|>") or tk.convert_tokens_to_ids("<|endoftext|>")]
 
-def ctx(q, k=3):
-    e = retriever.encode([q], convert_to_numpy=True); faiss.normalize_L2(e)
-    _, I = index.search(e, k)
-    return [corpus[i] for i in I[0]]
+ds=TestSet(args.input,tk)
+dl=DataLoader(ds,batch_size=1,shuffle=False,collate_fn=Collator(tk))
+out=json.load(open(args.input,encoding="utf-8"))
+idx=0
+with torch.no_grad():
+    for batch in tqdm.tqdm(dl,total=len(dl)):
+        batch={k:v.to(args.device) for k,v in batch.items()}
+        gen=model.generate(**batch,max_new_tokens=200,eos_token_id=terminators,
+                           pad_token_id=tk.eos_token_id,repetition_penalty=1.05)
+        for b,g in zip(batch["input_ids"],gen):
+            txt=tk.decode(g[b.shape[-1]:],skip_special_tokens=True).strip()
+            for p in("답변:","답:","Answer:","answer:"):
+                if txt.lower().startswith(p.lower()):txt=txt[len(p):].strip()
+            if not txt.startswith('"'):txt='"'+txt
+            if not txt.endswith('"'):txt=txt+'"'
+            out[idx]["output"]={"answer":txt}
+            idx+=1
+with open(args.output,"w",encoding="utf-8") as f:json.dump(out,f,ensure_ascii=False,indent=2)
+print("Saved →",os.path.abspath(args.output))
 
-print("Loading LLM")
-model = AutoModelForCausalLM.from_pretrained(
-            LLM_NAME,
-            device_map={"": "cpu"},
-            torch_dtype=torch.float32)
-tok = AutoTokenizer.from_pretrained(LLM_NAME, use_fast=True)
-tok.pad_token = tok.eos_token
-model.config.pad_token_id = tok.pad_token_id = tok.eos_token_id
-
-gen_cfg = GenerationConfig(
-    max_new_tokens = 200,
-    temperature    = 0.3,
-    top_p          = 0.9,
-    do_sample      = True,
-    pad_token_id   = tok.pad_token_id,
-    eos_token_id   = tok.eos_token_id
-)
-
-def build_prompt(q, cs):
-    refs = "\n\n".join(f"◎ 참고자료\n{c}" for c in cs)
-    return (f"다음 질문에 어문 규범에 맞는 정답과 이유를 제시하라.\n"
-            f"{refs}\n\n질문: {q}\n답:")
-
-def spin(msg="Compiling"):
-    for ch in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
-        if spin.stop: break
-        sys.stdout.write(f"\r{msg}{ch}")
-        sys.stdout.flush()
-        time.sleep(0.15)
-spin.stop = False
-threading.Thread(target=spin, daemon=True).start()
-
-warm_inp = tok("warm-up", return_tensors="pt")
-_ = model.generate(**warm_inp, generation_config=gen_cfg)
-
-spin.stop = True
-sys.stdout.write("\r✓ warm-up done\n"); sys.stdout.flush()
-
-tot  = len(test)
-pbar = tqdm(total=tot, ncols=100, desc="Generating")
-streamer = TextStreamer(tok, skip_prompt=True)
-
-preds = []
-for idx, ex in enumerate(test, 1):
-    q      = ex["input"]["question"]
-    prompt = build_prompt(q, ctx(q))
-    inp    = tok(prompt, return_tensors="pt")
-
-    t0 = time.time()
-    with torch.no_grad():
-        out = model.generate(**inp, generation_config=gen_cfg,
-                             streamer=streamer)
-    t1 = time.time()
-
-    gen_tok = out.shape[-1] - inp.input_ids.shape[-1]
-    tok_spd = gen_tok / (t1 - t0 + 1e-9)
-    heartbeat(f"[{idx:>3}/{tot}] {gen_tok:>4} tok │ {t1 - t0:5.1f}s │ "
-              f"{tok_spd:4.2f} tok/s")
-
-    ans = tok.decode(out[0], skip_special_tokens=True) \
-            .split("답:", 1)[-1].strip()
-
-    preds.append({"id": ex["id"],
-                  "input": ex["input"],
-                  "output": {"answer": ans}})
-
-    pbar.update(1)
-    pbar.set_postfix(tok=gen_tok, spd=f"{tok_spd:4.2f}/s")
-
-    del inp, out
-    gc.collect()
-
-pbar.close()
-print("inference done!")
-
-with open(OUT_PATH, "w", encoding="utf-8") as f:
-    json.dump(preds, f, ensure_ascii=False, indent=2)
-print(f"Saved → {OUT_PATH}")

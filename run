@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+pip install torch tqdm transformers bitsandbytes && python RAG.py --input /content/data/korean_language_rag_V1.0_test.json --output /content/submission.json --model_id mistralai/Mistral-7B-Instruct-v0.2 --device cuda

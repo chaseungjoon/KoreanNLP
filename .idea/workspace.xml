@@ -6,8 +6,17 @@
   <component name="ChangeListManager">
     <list default="true" id="ddacdc72-ee8f-46f2-9e06-ff897d23f22a" name="Changes" comment="Add project specification files">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Assignment_Description.pdf" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/RAG.py" beforeDir="false" afterPath="$PROJECT_DIR$/RAG.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/submission.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/evaluate.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/generator.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hf_token.txt" beforeDir="false" afterPath="$PROJECT_DIR$/data/hf_token.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infer_onefile.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/quick_eval.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/reference.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/retriever.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_all.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/submission.jsonl" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -36,16 +45,18 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "SHELLCHECK.PATH": "I do mind",
+    "git-widget-placeholder": "master"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/data" />
       <recent name="$PROJECT_DIR$" />
     </key>
   </component>
