@@ -5,14 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ddacdc72-ee8f-46f2-9e06-ff897d23f22a" name="Changes" comment="Add project specification files">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/RAG.py" beforeDir="false" afterPath="$PROJECT_DIR$/RAG_infer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/hf_token.txt" beforeDir="false" afterPath="$PROJECT_DIR$/hf_token.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/korean_language_rag_V1.0_dev.json" beforeDir="false" afterPath="$PROJECT_DIR$/korean_language_rag_V1.0_dev.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/korean_language_rag_V1.0_test.json" beforeDir="false" afterPath="$PROJECT_DIR$/korean_language_rag_V1.0_test.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/korean_language_rag_V1.0_train.json" beforeDir="false" afterPath="$PROJECT_DIR$/korean_language_rag_V1.0_train.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/reference.txt" beforeDir="false" afterPath="$PROJECT_DIR$/reference.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run" beforeDir="false" afterPath="$PROJECT_DIR$/run" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
