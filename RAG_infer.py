@@ -1,7 +1,7 @@
 """
 pip install torch tqdm transformers bitsandbytes
-python RAG.py \
-  --input  /content/data/korean_language_rag_V1.0_test.json \
+python RAG_infer.py \
+  --input  /content/korean_language_rag_V1.0_test.json \
   --output /content/submission.json \
   --model_id mistralai/Mistral-7B-Instruct-v0.2 \
   --device cuda
@@ -20,7 +20,7 @@ INST={
     "서술형":"[지침] 완전한 문장으로 서술하십시오."
 }
 
-with open("data/hf_token.txt", "r") as f:
+with open("hf_token.txt", "r") as f:
     hf_token = f.readline().strip()
 
 class TestSet(Dataset):
