@@ -1,19 +1,13 @@
-"""
-python RAG_2.py \
-  --train  /content/korean_language_rag_V1.0_train.json \
-  --dev    /content/korean_language_rag_V1.0_dev.json \
-  --test   /content/korean_language_rag_V1.0_test.json \
-  --output /content/submission.json \
-  --model_id mistralai/Mistral-7B-Instruct-v0.2 \
-  --device cuda
-"""
-
+#!/usr/bin/env python3
 import argparse, json, os, tqdm, torch
-from torch.utils.data import Dataset, DataLoader
-from transformers import (AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig,
-                          Trainer, TrainingArguments, DataCollatorForLanguageModeling)
+from transformers import (
+    AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig,
+    Trainer, TrainingArguments
+)
+from peft import prepare_model_for_kbit_training, LoraConfig
+from torch.utils.data import Dataset
 
-PROMPT_SYSTEM = "You are a helpful AI assistant. 당신은 한국어 어문 규범 전문가입니다. 질문을 읽고 올바른 답과 이유를 제시하세요."
+PROMPT = "You are a helpful AI assistant. 당신은 한국어 어문 규범 전문가입니다."
 INST = {
     "선택형": "[지침] 보기 중 올바른 표현을 골라 “○○가 옳다. 이유: …”로 답하십시오.",
     "교정형": "[지침] 틀린 부분을 고친 뒤 “○○가 옳다. 이유: …”로 답하십시오.",
@@ -23,94 +17,103 @@ INST = {
 }
 
 class RAGDataset(Dataset):
-    def __init__(self, path, tokenizer):
-        self.data = json.load(open(path, encoding="utf-8"))
+    def __init__(self, path, tokenizer, train=True):
+        data = json.load(open(path, encoding="utf-8"))
         self.tokenizer = tokenizer
-        self.samples = []
-        for item in self.data:
-            qt = item["input"]["question_type"]
-            q = item["input"]["question"]
-            a = item["output"]["answer"] if "output" in item and "answer" in item["output"] else ""
-            chat = [
-                {"role": "system", "content": PROMPT_SYSTEM},
-                {"role": "user", "content": f"{INST.get(qt, '')}\n\n[질문]\n{q}"},
-                {"role": "assistant", "content": a}
-            ]
-            prompt = tokenizer.apply_chat_template(chat, return_tensors="pt", add_generation_prompt=False)[0]
-            self.samples.append(prompt)
+        self.input_ids_list = []
+        self.attention_masks_list = []
+        self.labels_list = []
+        for it in data:
+            qt, q = it["input"]["question_type"], it["input"]["question"]
+            ctx = PROMPT + "\n" + INST.get(qt, "") + "\n\n[질문]\n" + q
+            if train and it.get("output", {}).get("answer"):
+                ctx += "\n\n" + it["output"]["answer"]
+            toks = tokenizer(ctx,
+                 max_length=512, truncation=True, padding="max_length",
+                 return_tensors="pt")
+            input_ids = toks.input_ids.squeeze()
+            self.input_ids_list.append(input_ids)
+            self.attention_masks_list.append(toks.attention_mask.squeeze())
+            self.labels_list.append(input_ids.clone())
 
-    def __len__(self): return len(self.samples)
-    def __getitem__(self, idx): return self.samples[idx]
+    def __len__(self):
+        return len(self.input_ids_list)
+
+    def __getitem__(self, i):
+        return {
+            "input_ids": self.input_ids_list[i],
+            "attention_mask": self.attention_masks_list[i],
+            "labels": self.labels_list[i],
+        }
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--train", required=True)
-    parser.add_argument("--dev", required=True)
-    parser.add_argument("--test", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--model_id", required=True)
-    parser.add_argument("--device", default="cuda")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--train", required=True)
+    ap.add_argument("--dev", required=True)
+    ap.add_argument("--test", required=True)
+    ap.add_argument("--output", required=True)
+    ap.add_argument("--model_id", required=True)
+    ap.add_argument("--device", default="cuda")
+    args = ap.parse_args()
 
-    hf_token = open("hf_token.txt").read().strip() if os.path.exists("hf_token.txt") else None
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.float16)
-    model_kwargs = dict(device_map="auto", quantization_config=bnb, max_memory={0: "13GiB", "cpu": "32GiB"})
-    if hf_token: model_kwargs["use_auth_token"] = hf_token
+    tk = AutoTokenizer.from_pretrained(args.model_id)
+    tk.pad_token = tk.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(args.model_id, **model_kwargs)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_id, use_auth_token=hf_token if hf_token else None)
-    tokenizer.pad_token = tokenizer.eos_token
+    bnb = BitsAndBytesConfig(
+        load_in_4bit=True, bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model_id, device_map="auto", quantization_config=bnb
+    )
+    model = prepare_model_for_kbit_training(model)
 
-    train_ds = RAGDataset(args.train, tokenizer)
-    dev_ds = RAGDataset(args.dev, tokenizer)
+    lora_cfg = LoraConfig(
+        task_type="CAUSAL_LM", inference_mode=False,
+        r=16, lora_alpha=32, lora_dropout=0.05,
+        target_modules="all-linear"
+    )
+    model.add_adapter(lora_cfg, adapter_name="lora_1")
+    model.set_adapter("lora_1")
 
-    training_args = TrainingArguments(
-        output_dir="./rag_finetune_ckpt",
+    train_ds = RAGDataset(args.train, tk, train=True)
+    dev_ds = RAGDataset(args.dev, tk, train=True)
+
+    tr_args = TrainingArguments(
+        output_dir="qlora_ckpt",
         per_device_train_batch_size=2,
-        per_device_eval_batch_size=2,
-        evaluation_strategy="epoch",
-        logging_dir="./logs",
+        eval_strategy="epoch",
         save_strategy="epoch",
-        save_total_limit=1,
+        logging_strategy="steps",
+        logging_steps=50,
         num_train_epochs=3,
-        learning_rate=2e-5,
-        bf16=True if torch.cuda.is_available() else False,
-        report_to="none"
+        learning_rate=2e-4,
+        bf16=torch.cuda.is_bf16_supported(),
+        save_total_limit=1,
+        report_to="none",
+        remove_unused_columns=False
     )
-
     trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_ds,
-        eval_dataset=dev_ds,
-        tokenizer=tokenizer,
-        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False)
+        model=model, args=tr_args,
+        train_dataset=train_ds, eval_dataset=dev_ds,
+        tokenizer=tk
     )
-
     trainer.train()
 
-    # Inference
     test_data = json.load(open(args.test, encoding="utf-8"))
     model.eval()
-    with torch.no_grad():
-        for idx, item in enumerate(tqdm.tqdm(test_data)):
-            qt = item["input"]["question_type"]
-            q = item["input"]["question"]
-            chat = [{"role": "system", "content": PROMPT_SYSTEM},
-                    {"role": "user", "content": f"{INST.get(qt, '')}\n\n[질문]\n{q}"}]
-            enc = tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_tensors="pt")[0].to(args.device)
-            gen = model.generate(input_ids=enc.unsqueeze(0), max_new_tokens=200, pad_token_id=tokenizer.eos_token_id)
-            txt = tokenizer.decode(gen[0][enc.shape[-1]:], skip_special_tokens=True).strip()
-            for p in ("답변:", "답:", "Answer:", "answer:"):
-                if txt.lower().startswith(p.lower()): txt = txt[len(p):].strip()
-            if not txt.startswith('"'): txt = '"' + txt
-            if not txt.endswith('"'): txt = txt + '"'
-            item["output"] = {"answer": txt}
+    with open(args.output, "w", encoding="utf-8") as fout:
+        for it in tqdm.tqdm(test_data):
+            qt, q = it["input"]["question_type"], it["input"]["question"]
+            prompt = PROMPT + "\n" + INST.get(qt, "") + "\n\n[질문]\n" + q
+            enc = tk(prompt, truncation=True, return_tensors="pt").to(args.device)
+            gen = model.generate(**enc, max_new_tokens=200, pad_token_id=tk.eos_token_id)
+            txt = tk.decode(gen[0, enc.input_ids.shape[-1]:], skip_special_tokens=True).strip()
+            it["output"] = {"answer": f'"{txt}"'}
+            json.dump(it, fout, ensure_ascii=False)
+            fout.write("\n")
 
-    with open(args.output, "w", encoding="utf-8") as f:
-        for item in test_data:
-            json.dump(item, f, ensure_ascii=False)
-            f.write("\\n")
+    print("✅ Saved →", os.path.abspath(args.output))
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()

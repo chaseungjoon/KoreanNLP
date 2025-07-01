@@ -1,7 +1,8 @@
-pip install torch tqdm transformers bitsandbytes && python RAG_2.py \
-  --train  /content/korean_language_rag_V1.0_train.json \
-  --dev    /content/korean_language_rag_V1.0_dev.json \
-  --test   /content/korean_language_rag_V1.0_test.json \
-  --output /content/submission.jsonl \
+pip install -U torch transformers bitsandbytes peft datasets accelerate &&
+python RAG_2.py \
+  --train korean_language_rag_V1.0_train.json \
+  --dev   korean_language_rag_V1.0_dev.json \
+  --test  korean_language_rag_V1.0_test.json \
+  --output submission.jsonl \
   --model_id mistralai/Mistral-7B-Instruct-v0.2 \
   --device cuda
