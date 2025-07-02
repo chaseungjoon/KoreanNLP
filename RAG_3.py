@@ -240,7 +240,19 @@ def predict(args):
             inputs.pop("token_type_ids", None)
             gen = model.generate(**inputs, max_new_tokens=128, do_sample=False, pad_token_id=tokenizer.pad_token_id)
             ans = postprocess(tokenizer.decode(gen[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True))
-            outf.write(json.dumps({"id": sample["id"], "answer": ans}, ensure_ascii=False) + "\n")
+            result = {
+                "id": sample["id"],
+                "input": {
+                    "question_type": sample["input"].get("question_type")
+                                     or sample["input"].get("type")
+                                     or "서술형",
+                    "question": sample["input"]["question"],
+                },
+                "output": {
+                    "answer": ans
+                }
+            }
+            outf.write(json.dumps(result, ensure_ascii=False) + "\n")
     print(f"Saved predictions → {args.output_path}")
 
 """
