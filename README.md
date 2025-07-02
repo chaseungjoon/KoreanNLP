@@ -6,7 +6,7 @@
 
 ## 실행 방법
 
-### 0) Git clone && Setup venv
+### 0) Git clone and Setup venv
 
 ```bash
 git clone https://github.com/chaseungjoon/KoreanNLP.git
