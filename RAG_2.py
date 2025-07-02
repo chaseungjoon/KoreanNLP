@@ -1,5 +1,5 @@
 """
-python RAG_Mistral.py \
+python RAG_2.py \
   --train korean_language_rag_V1.0_train.json \
   --dev   korean_language_rag_V1.0_dev.json \
   --test  korean_language_rag_V1.0_test.json \
@@ -7,32 +7,17 @@ python RAG_Mistral.py \
   --model_id mistralai/Mistral-7B-Instruct-v0.2 \
   --device cuda
 """
-# This code takes about 4 hours to train and inference on a single A100 GPU.
 
-import argparse, json, os, tqdm, torch, faiss
+import argparse, json, os, tqdm, torch
 from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, Trainer, TrainingArguments
 from peft import prepare_model_for_kbit_training, LoraConfig
 from torch.utils.data import Dataset
-from sentence_transformers import SentenceTransformer
 
-hf_token = os.getenv("HF_TOKEN")
+with open("hf_token.txt", "r") as f:
+  hf_token=f.readline().strip()
+
 login(hf_token)
-
-sbert = SentenceTransformer("paraphrase-multilingual-mpnet-base-v2")
-ref_texts = [line.strip() for line in open("reference.txt", encoding="utf-8") if line.strip()]
-ref_embs = sbert.encode(ref_texts, convert_to_numpy=True, show_progress_bar=True)
-
-dim = ref_embs.shape[1]
-faiss.normalize_L2(ref_embs)
-index = faiss.IndexFlatIP(dim)
-index.add(ref_embs)
-
-def retrieve_docs(q, topk=3):
-    emb = sbert.encode([q], convert_to_numpy=True)
-    faiss.normalize_L2(emb)
-    D, I = index.search(emb, topk)
-    return [ref_texts[i] for i in I[0]]
 
 PROMPT = "You are a helpful AI assistant. 당신은 한국어 어문 규범 전문가입니다."
 INST = {
@@ -46,29 +31,32 @@ INST = {
 class RAGDataset(Dataset):
     def __init__(self, path, tokenizer, train=True):
         data = json.load(open(path, encoding="utf-8"))
-        self.samples = []
+        self.tokenizer = tokenizer
+        self.input_ids_list = []
+        self.attention_masks_list = []
+        self.labels_list = []
         for it in data:
             qt, q = it["input"]["question_type"], it["input"]["question"]
-            docs = retrieve_docs(q)
             ctx = PROMPT + "\n" + INST.get(qt, "") + "\n\n[질문]\n" + q
-            ctx += "\n\n[참고 문서]\n" + "\n".join(docs)
             if train and it.get("output", {}).get("answer"):
                 ctx += "\n\n" + it["output"]["answer"]
-            toks = tokenizer(
-                ctx, max_length=512, truncation=True, padding="max_length",
-                return_tensors="pt"
-            )
+            toks = tokenizer(ctx,
+                 max_length=512, truncation=True, padding="max_length",
+                 return_tensors="pt")
             input_ids = toks.input_ids.squeeze()
-            self.samples.append({
-                "input_ids": input_ids,
-                "attention_mask": toks.attention_mask.squeeze(),
-                "labels": input_ids.clone()
-            })
+            self.input_ids_list.append(input_ids)
+            self.attention_masks_list.append(toks.attention_mask.squeeze())
+            self.labels_list.append(input_ids.clone())
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.input_ids_list)
+
     def __getitem__(self, i):
-        return self.samples[i]
+        return {
+            "input_ids": self.input_ids_list[i],
+            "attention_mask": self.attention_masks_list[i],
+            "labels": self.labels_list[i],
+        }
 
 def main():
     ap = argparse.ArgumentParser()
@@ -80,7 +68,7 @@ def main():
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
 
-    tk = AutoTokenizer.from_pretrained(args.model_id, token=hf_token)
+    tk = AutoTokenizer.from_pretrained(args.model_id)
     tk.pad_token = tk.eos_token
 
     bnb = BitsAndBytesConfig(
@@ -88,7 +76,7 @@ def main():
         bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16
     )
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id, device_map="auto", quantization_config=bnb, token=hf_token
+        args.model_id, device_map="auto", quantization_config=bnb
     )
     model = prepare_model_for_kbit_training(model)
 
@@ -129,20 +117,15 @@ def main():
     with open(args.output, "w", encoding="utf-8") as fout:
         for it in tqdm.tqdm(test_data):
             qt, q = it["input"]["question_type"], it["input"]["question"]
-            docs = retrieve_docs(q)
             prompt = PROMPT + "\n" + INST.get(qt, "") + "\n\n[질문]\n" + q
-            prompt += "\n\n[참고 문서]\n" + "\n".join(docs)
-            enc = tk(prompt, max_length=512, truncation=True, return_tensors="pt").to(args.device)
-            gen = model.generate(
-                **enc, max_new_tokens=200, pad_token_id=tk.eos_token_id
-            )
-            txt = tk.decode(
-                gen[0, enc.input_ids.shape[-1]:], skip_special_tokens=True
-            ).strip()
+            enc = tk(prompt, truncation=True, return_tensors="pt").to(args.device)
+            gen = model.generate(**enc, max_new_tokens=200, pad_token_id=tk.eos_token_id)
+            txt = tk.decode(gen[0, enc.input_ids.shape[-1]:], skip_special_tokens=True).strip()
             it["output"] = {"answer": f'"{txt}"'}
-            json.dump(it, fout, ensure_ascii=False); fout.write("\n")
+            json.dump(it, fout, ensure_ascii=False)
+            fout.write("\n")
 
-    print("Saved to ", os.path.abspath(args.output))
+    print("Saved to", os.path.abspath(args.output))
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
