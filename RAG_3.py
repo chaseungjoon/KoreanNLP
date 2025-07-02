@@ -4,11 +4,8 @@ HOW TO RUN (Advised to use virtual environment)
 1. Install dependencies
 chmod +x setup && ./setup
 
-2. Train the model
-chmod +x train && ./train
-
-3. Run inference
-chmod +x predict && ./predict
+2. Run training & inference
+chmod +x run && ./run
 
 """
 
