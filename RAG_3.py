@@ -248,13 +248,11 @@ MAIN FUNCTION
 """
 def main():
     p = argparse.ArgumentParser()
-    # ── shared / required ───────────────────────────────────────────────────────
     p.add_argument("--mode", required=True, choices=["train", "predict"])
     p.add_argument("--model_name", required=True)
     p.add_argument("--reference_path", required=True)
     p.add_argument("--hf_token")
 
-    # ── training options ────────────────────────────────────────────────────────
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="ckpt")
@@ -262,7 +260,6 @@ def main():
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--grad_accum", type=int, default=8)
 
-    # ── prediction options ──────────────────────────────────────────────────────
     p.add_argument("--test_path")
     p.add_argument("--adapter_path")
     p.add_argument("--output_path", default="submission.jsonl")
@@ -270,10 +267,7 @@ def main():
     args = p.parse_args()
 
     if args.mode == "train":
-        # ── 1. train ────────────────────────────────────────────────────────────
         train(args)
-
-        # ── 2. auto-predict (only if test_path is given) ───────────────────────
         if args.test_path:
             print("\nTraining complete — starting inference …\n")
             args.mode = "predict"
