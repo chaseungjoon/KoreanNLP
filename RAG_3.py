@@ -18,6 +18,7 @@ from typing import List, Dict, Optional
 import torch
 from torch.utils.data import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments
+from transformers.utils import logging as hf_logging
 from peft import LoraConfig, get_peft_model, PeftModel, prepare_model_for_kbit_training
 from sentence_transformers import SentenceTransformer
 from sklearn.neighbors import NearestNeighbors
@@ -209,6 +210,7 @@ def predict(args):
 
     retriever = load_retriever(args.adapter_path or pathlib.Path(args.reference_path).parent)
     data = load_json(args.test_path)
+    hf_logging.set_verbosity_error()
 
     with open(args.output_path, "w", encoding="utf-8") as outf:
         for sample in tqdm(data, desc="Generating", unit="sample", total=len(data)):
@@ -222,11 +224,13 @@ def predict(args):
                 f"[참고 문헌]\n{ctx_block}\n\n"
                 f"[질문 유형]\n{qtype}\n\n"
                 f"[질문]\n{q}\n\n"
-                f"{inst}\n\n답변:"
+                f"{inst}\n\n"
+                f"※ 답변 형식: ① 정답 표현을 그대로 쓰고, ② 공백 없이 ‘가 옳다. 이유:’ 를 이어서 쓰시오.\n\n"
+                f"답변:"
             )
             inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
             inputs.pop("token_type_ids", None)
-            gen = model.generate(**inputs, max_new_tokens=128, do_sample=False)
+            gen = model.generate(**inputs, max_new_tokens=128, do_sample=False, pad_token_id=tokenizer.pad_token_id)
             ans = postprocess(tokenizer.decode(gen[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True))
             outf.write(json.dumps({"id": sample["id"], "answer": ans}, ensure_ascii=False) + "\n")
     print(f"Saved predictions → {args.output_path}")
