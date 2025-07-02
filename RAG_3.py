@@ -4,12 +4,16 @@ HOW TO RUN (Advised to use virtual environment)
 1. Install dependencies
 chmod +x setup && ./setup
 
-2. Run training & inference
-chmod +x run && ./run
+2. Train the model
+chmod +x train && ./train
+
+3. Run inference
+chmod +x predict && ./predict
 
 """
 
 import argparse, json, os, pathlib, warnings
+from tqdm import tqdm
 from typing import List, Dict, Optional
 import torch
 from torch.utils.data import Dataset
@@ -200,11 +204,14 @@ def predict(args):
         model = PeftModel.from_pretrained(model, args.adapter_path, token=token)
     model.eval()
 
+    tokenizer.pad_token = tokenizer.eos_token
+    model.config.pad_token_id = model.config.eos_token_id
+
     retriever = load_retriever(args.adapter_path or pathlib.Path(args.reference_path).parent)
     data = load_json(args.test_path)
 
     with open(args.output_path, "w", encoding="utf-8") as outf:
-        for sample in data:
+        for sample in tqdm(data, desc="Generating", unit="sample", total=len(data)):
             q = sample["input"]["question"]
             qtype = sample["input"].get("type", "서술형")
             ctx = retriever.query(q, k=5)
@@ -218,6 +225,7 @@ def predict(args):
                 f"{inst}\n\n답변:"
             )
             inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+            inputs.pop("token_type_ids", None)
             gen = model.generate(**inputs, max_new_tokens=128, do_sample=False)
             ans = postprocess(tokenizer.decode(gen[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True))
             outf.write(json.dumps({"id": sample["id"], "answer": ans}, ensure_ascii=False) + "\n")
