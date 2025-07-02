@@ -7,6 +7,7 @@ python RAG_Mistral.py \
   --model_id mistralai/Mistral-7B-Instruct-v0.2 \
   --device cuda
 """
+# This code takes about 4 hours to train and inference on a single A100 GPU.
 
 import argparse, json, os, tqdm, torch, faiss
 from huggingface_hub import login
