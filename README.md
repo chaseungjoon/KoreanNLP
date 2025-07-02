@@ -9,8 +9,8 @@ https://kli.korean.go.kr/benchmark/taskOrdtm/taskList.do?taskOrdtmId=182&clCd=IN
 ```bash
 git clone https://github.com/chaseungjoon/KoreanNLP.git
 cd KoreanNLP
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 ```
 ### 2) Install Dependencies (윈도우 환경은 2~4 직접 실행)
 
