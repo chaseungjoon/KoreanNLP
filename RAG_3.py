@@ -40,16 +40,10 @@ INST = {
 """
 HUGGINGFACE TOKEN RESOLVER
 """
-def resolve_token(cli_token: Optional[str] = None) -> Optional[str]:
-    if cli_token:
-        return cli_token
-    env_token = os.getenv("HUGGINGFACE_TOKEN")
-    if env_token:
-        return env_token
-    if TOKEN_FALLBACK_FILE.exists():
-        return TOKEN_FALLBACK_FILE.read_text(encoding="utf-8").strip()
-    print("No Hugging Face token provided.\nPlease set it via HUGGINGFACE_TOKEN environment variable, or hf_token.txt file.")
-    return None
+def resolve_token(_: Optional[str] = None) -> Optional[str]:
+    with open("hf_token.txt", "r") as f:
+        hf_token = f.read().strip()
+    return hf_token
 
 """
 SBERT RETRIEVER
