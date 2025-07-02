@@ -1,6 +1,8 @@
 # 국립국어원 한국어 어문 규범 기반 생성 (RAG) 모델
 
-https://kli.korean.go.kr/benchmark/taskOrdtm/taskList.do?taskOrdtmId=182&clCd=ING_TASK&subMenuId=sub01
+[대회 링크](https://kli.korean.go.kr/benchmark/taskOrdtm/taskList.do?taskOrdtmId=182&clCd=ING_TASK&subMenuId=sub01)
+
+---
 
 ## 실행 방법
 
@@ -18,14 +20,9 @@ source .venv/bin/activate
 chmod +x setup && ./setup
 ```
 
-### 3) Train
+### 3) Run
 ```bash
-chmod +x train && ./train
-```
-
-### 4) Run Inference
-```bash
-chmod +x inference && ./inference
+chmod +x run && ./run
 ```
 
 ---
