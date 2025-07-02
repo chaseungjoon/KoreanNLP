@@ -37,7 +37,7 @@ chmod +x inference && ./inference
 |:---:|:-----------:|:---:|:---:|:---:|
 |  **48.2280559** | 45.5823293  |  43.7259803 |  73.9317909 |  34.9635763
 
-### RAG_3 (kullm-polyglot-12.8b + KR-SBERT-V40K-klueNLI-augSTS)
+### RAG_3 (kullm-polyglot-12.8b-v2 + KR-SBERT-V40K-klueNLI-augSTS)
 | **평가 점수** | Exact Match | BLEURT | BERTScore | ROUGE-1 
 |:---:|:-----------:|:---:|:---:|:---:|
 |  |  |  |  | 
