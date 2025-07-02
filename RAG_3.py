@@ -17,7 +17,7 @@ from typing import List, Dict, Optional
 import torch
 from torch.utils.data import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments
-from peft import LoraConfig, get_peft_model, PeftModel
+from peft import LoraConfig, get_peft_model, PeftModel, prepare_model_for_kbit_training
 from sentence_transformers import SentenceTransformer
 from sklearn.neighbors import NearestNeighbors
 
@@ -136,7 +136,19 @@ def train(args):
     dev_data = load_json(args.dev_path) if args.dev_path else train_data[: max(1, len(train_data) // 10)]
 
     model, tokenizer = load_base_model(args.model_name, token=token)
-    lora_cfg = LoraConfig(r=8, lora_alpha=32, lora_dropout=0.05, target_modules=["q_proj", "v_proj"])
+    model.config.use_cache = False
+
+    model = prepare_model_for_kbit_training(model)
+    gpt_neox_targets = ["query_key_value", "dense"]
+
+    lora_cfg = LoraConfig(
+        r=16,
+        lora_alpha=32,
+        lora_dropout=0.05,
+        target_modules=gpt_neox_targets,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
     model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
 
@@ -219,14 +231,13 @@ MAIN FUNCTION
 """
 def main():
     p = argparse.ArgumentParser()
-    # 필수/공통 인자
+    # ── shared / required ───────────────────────────────────────────────────────
     p.add_argument("--mode", required=True, choices=["train", "predict"])
-    p.add_argument("--model_name", required=True,
-                   help="예: nlpai-lab/kullm-polyglot-12.8b")
+    p.add_argument("--model_name", required=True)
     p.add_argument("--reference_path", required=True)
     p.add_argument("--hf_token")
 
-    # train 전용
+    # ── training options ────────────────────────────────────────────────────────
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="ckpt")
@@ -234,7 +245,7 @@ def main():
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--grad_accum", type=int, default=8)
 
-    # predict 전용
+    # ── prediction options ──────────────────────────────────────────────────────
     p.add_argument("--test_path")
     p.add_argument("--adapter_path")
     p.add_argument("--output_path", default="submission.jsonl")
@@ -242,8 +253,19 @@ def main():
     args = p.parse_args()
 
     if args.mode == "train":
+        # ── 1. train ────────────────────────────────────────────────────────────
         train(args)
+
+        # ── 2. auto-predict (only if test_path is given) ───────────────────────
+        if args.test_path:
+            print("\nTraining complete — starting inference …\n")
+            args.mode = "predict"
+            args.adapter_path = args.output_dir
+            predict(args)
+        else:
+            print("\nNo --test_path supplied, so inference was skipped.")
     else:
         predict(args)
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()

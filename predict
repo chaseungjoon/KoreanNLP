@@ -1,7 +1,0 @@
-python RAG_3.py \
-  --mode predict \
-  --model_name nlpai-lab/kullm-polyglot-12.8b-v2 \
-  --test_path korean_language_rag_V1.0_test.json \
-  --reference_path reference.txt \
-  --adapter_path ckpt \
-  --output_path submission_RAG3.jsonl
