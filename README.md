@@ -1,4 +1,4 @@
-# 국립국어원 한국어 어문 규범 기반 생성 (RAG) 모델
+# 국립국어원 한국어 어문 규범 기반 생성 (RAG) 경진대회
 
 [대회 링크](https://kli.korean.go.kr/benchmark/taskOrdtm/taskList.do?taskOrdtmId=182&clCd=ING_TASK&subMenuId=sub01)
 
