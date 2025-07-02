@@ -4,23 +4,40 @@ https://kli.korean.go.kr/benchmark/taskOrdtm/taskList.do?taskOrdtmId=182&clCd=IN
 
 ## 실행 방법
 
-### 1) huggingface 토큰 (write) 환경 변수로 설정
-
-```bash
-export HF_TOKEN="hf_XXXXXXXXXXXXXXX"
-```
-### 2) 다운로드
+### 0) Git clone && Setup venv
 
 ```bash
 git clone https://github.com/chaseungjoon/KoreanNLP.git
 cd KoreanNLP
-pip install -r requirements.txt
+python -m venv venv
+source venv/bin/activate
 ```
+### 2) Install Dependencies (윈도우 환경은 2~4 직접 실행)
 
-### 3) 훈련 및 inference 실행 (CUDA GPU 필요)
 ```bash
-chmod +x run
-./run
+chmod +x setup && ./setup
 ```
 
-### 4) submission.jsonl 생성 & 제출
+### 3) Train
+```bash
+chmod +x train && ./train
+```
+
+### 4) Run Inference
+```bash
+chmod +x inference && ./inference
+```
+
+---
+
+## Score
+
+### RAG_2 (Mistral 7B Instruct)
+| **평가 점수** | Exact Match | BLEURT | BERTScore | ROUGE-1 
+|:---:|:-----------:|:---:|:---:|:---:|
+|  **48.2280559** | 45.5823293  |  43.7259803 |  73.9317909 |  34.9635763
+
+### RAG_3 (kullm-polyglot-12.8b + KR-SBERT-V40K-klueNLI-augSTS)
+| **평가 점수** | Exact Match | BLEURT | BERTScore | ROUGE-1 
+|:---:|:-----------:|:---:|:---:|:---:|
+|  |  |  |  | 
