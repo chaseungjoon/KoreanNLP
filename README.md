@@ -14,7 +14,7 @@ cd KoreanNLP
 python -m venv .venv
 source .venv/bin/activate
 ```
-### 2) Install Dependencies (윈도우 환경은 2~4 직접 실행)
+### 2) Install Dependencies (윈도우 환경은 2, 3 직접 실행)
 
 ```bash
 chmod +x setup && ./setup
