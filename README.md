@@ -29,7 +29,7 @@ chmod +x run && ./run
 
 ## Score
 
-### RAG_2 (Mistral 7B Instruct)
+### NO_RAG (Mistral 7B Instruct)
 | **평가 점수** | Exact Match | BLEURT | BERTScore | ROUGE-1 
 |:---:|:-----------:|:---:|:---:|:---:|
 |  **48.2280559** | 45.5823293  |  43.7259803 |  73.9317909 |  34.9635763
