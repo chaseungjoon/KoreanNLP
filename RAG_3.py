@@ -12,7 +12,7 @@ chmod +x predict && ./predict
 
 """
 
-import argparse, json, os, pathlib, warnings
+import argparse, json, os, pathlib, warnings, re
 from tqdm import tqdm
 from typing import List, Dict, Optional
 import torch
@@ -190,11 +190,19 @@ def load_retriever(saved_dir: str, sbert_name="snunlp/KR-SBERT-V40K-klueNLI-augS
 
 
 def postprocess(text: str) -> str:
-    if "\"" in text:
-        parts = [p.strip() for p in text.split("\"") if p.strip()]
-        if parts:
-            return parts[-1]
-    return text.strip().split("\n")[-1]
+    text = text.strip()
+
+    if re.match(r'.+가 옳다', text):
+        return text
+
+    m = re.search(r'[\"“”]([^\"”]+)[\"”]', text)
+    if m:
+        fix = f'{m.group(1)}가 옳다. '
+        rest = text[m.end():].lstrip(' .')
+        return fix + rest
+
+    first = text.split()[0]
+    return f'{first}가 옳다. ' + text
 
 
 def predict(args):
@@ -225,7 +233,7 @@ def predict(args):
                 f"[질문 유형]\n{qtype}\n\n"
                 f"[질문]\n{q}\n\n"
                 f"{inst}\n\n"
-                f"※ 답변 형식: ① 정답 표현을 그대로 쓰고, ② 공백 없이 ‘가 옳다. 이유:’ 를 이어서 쓰시오.\n\n"
+                f"※ 답변 형식: ① 정답 표현만 먼저 쓰고, ② 바로 ‘가 옳다. 이유: …’를 이어서 쓰십시오.\n\n"
                 f"답변:"
             )
             inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
