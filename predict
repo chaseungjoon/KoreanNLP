@@ -1,6 +1,6 @@
 python RAG_3.py \
   --mode predict \
-  --model_name nlpai-lab/kullm-polyglot-12.8b-v2 \
+  --model_name beomi/Llama-3-OpenKo-15B-Instruct \
   --reference_path reference.txt \
   --hf_token hf_token.txt \
   --adapter_path ckpt \

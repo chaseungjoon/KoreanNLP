@@ -285,6 +285,7 @@ def predict(args):
                 repetition_penalty=1.05,
                 temperature=0.7,
                 top_p=0.8,
+                stop_sequences=[tokenizer.encode("\n- ", add_special_tokens=False)[-1]]
             )
 
             text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
