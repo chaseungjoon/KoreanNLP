@@ -6,7 +6,7 @@
 
 ## 실행 방법
 
-### 0) Git clone and **Setup venv (recommended)**
+### 0) Git clone and **setup virtual environment (recommended)**
 
 ```bash
 git clone https://github.com/chaseungjoon/KoreanNLP.git
@@ -20,10 +20,17 @@ source .venv/bin/activate
 chmod +x setup && ./setup
 ```
 
-### 3) Run
+### 3) Run (train + predict)
 ```bash
 chmod +x run && ./run
 ```
+
+### (Optional) Train and predict separately
+```bash
+chmod +x train && ./train
+chmod +x predict && ./predict
+```
+
 
 ---
 
@@ -34,7 +41,12 @@ chmod +x run && ./run
 |:---:|:-----------:|:---:|:---:|:---:|
 |  **48.2280559** | 45.5823293  |  43.7259803 |  73.9317909 |  34.9635763
 
-### RAG_3 (kullm-polyglot-12.8b-v2 + KR-SBERT-V40K-klueNLI-augSTS)
+### RAG_3 (kullm-polyglot-12.8b-v2)
 |   **평가 점수**    | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
 |:--------------:|:-----------:|:----------:|:-------------:|:---:|
 | **45.8880031** | 41.7670682  | 50.8583344 | 71.5458505    | 27.622629
+
+### RAG_5 (Llama-3-Open-Ko-8B-Instruct-preview + Additional Tokenization)
+|   **평가 점수**    | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
+|:--------------:|:-----------:|:----------:|:-------------:|:---:|
+| **48.9918717** | 46.1847389  | 49.2321253 | 74.1369496    | 32.0279384
