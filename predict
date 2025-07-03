@@ -5,4 +5,4 @@ python RAG_3.py \
   --hf_token hf_token.txt \
   --adapter_path ckpt \
   --test_path korean_language_rag_V1.0_test.json \
-  --output_path submission_RAG3.jsonl
+  --output_path submission_RAG4.jsonl
