@@ -25,23 +25,62 @@ from sklearn.neighbors import NearestNeighbors
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-THIS_DIR = pathlib.Path(__file__).resolve().parent
-TOKEN_FALLBACK_FILE = THIS_DIR / "hf_token.txt"
-
-PROMPT = "You are a helpful AI assistant. 당신은 한국어 어문 규범 전문가 입니다."
+PROMPT = "You are a helpful AI assistant. Please answer the user's questions kindly. \
+            당신은 한국의 전통 문화와 역사, 문법, 사회, 과학기술 등 다양한 분야에 대해 잘 알고 있는 유능한 AI 어시스턴트 입니다. 사용자의 질문에 대해 친절하게 답변해주세요. \
+            단, 동일한 문장을 절대 반복하지 마시오."
 INST = {
-    "선택형": "[지침] 보기 중 올바른 표현을 골라 “○○가 옳다. 이유: …”로 답하십시오.",
-    "교정형": "[지침] 틀린 부분을 고친 뒤 “○○가 옳다. 이유: …”로 답하십시오.",
-    "선다형": "[지침] 가장 적절한 보기 번호만 숫자로 답하십시오.",
-    "단답형": "[지침] 두 단어 이내로 간단히 답하십시오.",
-    "서술형": "[지침] 완전한 문장으로 서술하십시오."
+    "선다형": (
+        "[질문]을 잘 읽고 답변을 생성하시오. 문제를 그대로 출력하지 마시오.\n"
+        "[지침]\n"
+        "주어진 보기 중에서 가장 적절한 답을 숫자로만 응답하시오.\n\n"
+        "[예시]\n"
+        "질문: 다음 한국의 전통 놀이 중 '조선시대'에 행한 놀이는?\n"
+        "1) 주사위 놀이\n"
+        "2) 검무\n"
+        "3) 격구\n"
+        "4) 영고\n"
+        "5) 무애무\n"
+        "답변: 3"
+    ),
+    "서술형": (
+        "[질문]을 잘 읽고 답변을 생성하시오. 문제를 그대로 출력하지 마시오.\n"
+        "[지침]\n"
+        "질문에 대한 답변을 완성된 문장으로 서술하시오.\n\n"
+        "[예시]\n"
+        "질문: 대한민국의 행정구역 체계를 서술하세요.\n"
+        "답변: 대한민국의 행정구역은 여러 종류의 지역 단위로 나뉘어 구성되어 있으며, 먼저 특별시와 광역시부터 살펴볼 수 있다. 특별시로는 수도인 서울특별시가 있으며, 광역시에는 인천광역시, 부산광역시, 대전광역시, 광주광역시, 대구광역시, 울산광역시 등이 포함된다. 이 외에도 대한민국은 일반 도 단위로 6개의 도를 두고 있는데, 그 이름은 경기도, 충청북도, 충청남도, 전라남도, 경상북도, 경상남도로 구성되어 있다. 특별한 자치권을 부여받은 도인 특별자치도로는 제주특별자치도, 전북특별자치도, 강원특별자치도가 있다. 마지막으로 특별자치시로는 세종특별자치시가 존재한다."
+    ),
+    "단답형": (
+        "[질문]을 잘 읽고 답변을 생성하시오. 문제를 그대로 출력하지 마시오.\n"
+        "[지침]\n"
+        "질문에 대한 답을 2단어 이내로 간단히 답하시오.\n\n"
+        "[예시]\n"
+        "질문: 조선 후기의 실학 사상가로 목민심서를 쓴 인물은?\n"
+        "답변: 정약용"
+    ),
+    "교정형": (
+        "[질문]을 잘 읽고 답변을 생성하시오. 문제를 그대로 출력하지 마시오.\n"
+        "[지침]\n"
+        "주어진 문장이 올바른지 판단하고, 틀린 경우 올바르게 교정하여 \"~가 옳다.\" 형태로 답변하고, 그 이유를 설명하시오.\n\n"
+        "[예시]\n"
+        "질문: 다음 문장에서 어문 규범에 부합하지 않는 부분을 찾아 고치고, 그 이유를 설명하세요.\n\"오늘은 퍼즐 마추기를 해 볼 거예요.\"\n"
+        "답변: \"오늘은 퍼즐 맞추기를 해 볼 거예요.\"가 옳다. '제자리에 맞게 붙이다, 주문하다, 똑바르게 하다, 비교하다' 등의 뜻이 있는 말은 '마추다'가 아닌 '맞추다'로 적는다."
+    ),
+    "선택형": (
+        "[질문]을 잘 읽고 답변을 생성하시오. 문제를 그대로 출력하지 마시오.\n"
+        "[지침]\n"
+        "주어진 보기들 중에서 가장 적절한 것을 선택하여 \"~가 옳다.\" 형태로 답변하고, 그 이유를 설명하시오.\n\n"
+        "[예시]\n"
+        "질문: \"나는 그를 본 적이 있음을 {기억해냈다/기억해 냈다}.\" 가운데 올바른 것을 선택하고, 그 이유를 설명하세요.\n"
+        "답변: \"나는 그를 본 적이 있음을 기억해 냈다.\"가 옳다. '기억해 냈다'는 '기억하-+-아+냈다'의 구성이다. 이처럼 '본용언+-아/-어+보조 용언' 구성인 경우 본용언과 보조 용언을 붙여 쓰는 것이 허용되지만, 이러한 구성을 갖더라도 앞말이 3음절 이상의 합성어나 파생어라면 보조 용언을 붙여 쓰는 것이 허용되지 않는다. '기억하다'는 '기억'과 '-하다'가 결합한 파생어이며 '기억해'는 3음절이다. 따라서 '기억해'와 '냈다'는 띄어 써야 한다."
+    )
 }
 
 """
 HUGGINGFACE TOKEN RESOLVER
 """
-def resolve_token(_: Optional[str] = None) -> Optional[str]:
-    with open("hf_token.txt", "r") as f:
+def get_token(path: Optional[str] = None) -> Optional[str]:
+    with open(path, "r") as f:
         hf_token = f.read().strip()
     return hf_token
 
@@ -123,7 +162,7 @@ def load_base_model(name: str, load_in_4bit: bool = True, token: Optional[str] =
 TRAINING
 """
 def train(args):
-    token = resolve_token(args.hf_token)
+    token = get_token(args.hf_token)
 
     passages = [l.strip() for l in open(args.reference_path, encoding="utf-8").read().splitlines() if l.strip()]
     retriever = SBERTRetriever(passages)
@@ -200,7 +239,7 @@ def postprocess(text: str) -> str:
 
 
 def predict(args):
-    token = resolve_token(args.hf_token)
+    token = get_token(args.hf_token)
 
     model, tokenizer = load_base_model(args.model_name, load_in_4bit=True, token=token)
     if args.adapter_path:
@@ -208,7 +247,11 @@ def predict(args):
     model.eval()
 
     tokenizer.pad_token = tokenizer.eos_token
-    model.config.pad_token_id = model.config.eos_token_id
+    model.config.pad_token_id = tokenizer.eos_token_id
+    terminators = [
+        tokenizer.eos_token_id,
+        tokenizer.convert_tokens_to_ids("<|eot_id|>") or tokenizer.convert_tokens_to_ids("<|endoftext|>")
+    ]
 
     retriever = load_retriever(args.adapter_path or pathlib.Path(args.reference_path).parent)
     data = load_json(args.test_path)
@@ -216,9 +259,10 @@ def predict(args):
 
     with open(args.output_path, "w", encoding="utf-8") as outf:
         for sample in tqdm(data, desc="Generating", unit="sample", total=len(data)):
-            q = sample["input"]["question"]
-            qtype = sample["input"].get("type", "서술형")
-            ctx = retriever.query(q, k=5)
+            q      = sample["input"]["question"]
+            qtype  = sample["input"].get("type", "서술형")
+
+            ctx  = retriever.query(q, k=5)
             ctx_block = "\n".join(f"- {c}" for c in ctx)
             inst = INST.get(qtype, INST["서술형"])
             prompt = (
@@ -227,28 +271,38 @@ def predict(args):
                 f"[질문 유형]\n{qtype}\n\n"
                 f"[질문]\n{q}\n\n"
                 f"{inst}\n\n"
-                f"※ 답변 형식: ① 정답 표현만 먼저 쓰고, ② 바로 ‘가 옳다. 이유: …’를 이어서 쓰십시오.\n\n"
                 f"답변:"
             )
+
             inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
             inputs.pop("token_type_ids", None)
-            gen = model.generate(**inputs, max_new_tokens=128, do_sample=False, pad_token_id=tokenizer.pad_token_id)
-            ans = postprocess(tokenizer.decode(gen[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True))
-            result = {
-                "id": sample["id"],
-                "input": {
-                    "question_type": sample["input"].get("question_type")
-                                     or sample["input"].get("type")
-                                     or "서술형",
-                    "question": sample["input"]["question"],
-                },
-                "output": {
-                    "answer": ans
-                }
-            }
-            outf.write(json.dumps(result, ensure_ascii=False) + "\n")
-    print(f"Saved predictions → {args.output_path}")
 
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=1024,
+                eos_token_id=terminators,
+                pad_token_id=tokenizer.eos_token_id,
+                repetition_penalty=1.05,
+                temperature=0.7,
+                top_p=0.8,
+            )
+
+            text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
+
+            if text.startswith("답변: "):
+                text = text[4:]
+            elif text.startswith("답변:"):
+                text = text[3:]
+
+            answer = postprocess(text)
+
+            outf.write(json.dumps({
+                "id": sample["id"],
+                "input": sample["input"],
+                "output": {"answer": answer}
+            }, ensure_ascii=False) + "\n")
+
+    print(f"Saved predictions → {args.output_path}")
 """
 MAIN FUNCTION 
 """
