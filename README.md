@@ -36,17 +36,22 @@ chmod +x predict && ./predict
 
 ## Score
 
-### NO_RAG (Mistral 7B Instruct)
-| **평가 점수** | Exact Match | BLEURT | BERTScore | ROUGE-1 
-|:---:|:-----------:|:---:|:---:|:---:|
-|  **48.2280559** | 45.5823293  |  43.7259803 |  73.9317909 |  34.9635763
+### RAG_2 (Mistral 7B Instruct)
+|                      평가 점수                      |  Exact Match | BLEURT | BERTScore | ROUGE-1 
+|:-----------------------------------------------:|:------------:|:---:|:---:|:---:|
+| <span style="color:green">**48.2280559**</span> |  45.5823293  |  43.7259803 |  73.9317909 |  34.9635763
 
 ### RAG_3 (kullm-polyglot-12.8b-v2)
-|   **평가 점수**    | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
+| 평가 점수 | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
 |:--------------:|:-----------:|:----------:|:-------------:|:---:|
-| **45.8880031** | 41.7670682  | 50.8583344 | 71.5458505    | 27.622629
+| <span style="color:green">**45.8880031**</span> | 41.7670682  | 50.8583344 | 71.5458505    | 27.622629
 
 ### RAG_5 (Llama-3-Open-Ko-8B-Instruct-preview + Additional Tokenization)
-|   **평가 점수**    | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
+| 평가 점수 | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
 |:--------------:|:-----------:|:----------:|:-------------:|:---:|
-| **48.9918717** | 46.1847389  | 49.2321253 | 74.1369496    | 32.0279384
+| <span style="color:green">**48.9918717**</span> | 46.1847389  | 49.2321253 | 74.1369496    | 32.0279384
+
+### RAG_6 (Qwen1.5-7B-Chat + Additional Tokenization)
+| 평가 점수 | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
+|:--------------:|:-----------:|:----------:|:-------------:|:---:|
+| <span style="color:green">**36.5028852**</span> | 26.3052208  | 43.3782998 | 71.3783302 | 25.3450191
