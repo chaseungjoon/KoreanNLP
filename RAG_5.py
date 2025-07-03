@@ -95,8 +95,7 @@ def hybrid_query(question, retriever, bm25, k=5, alpha=0.7):
     bm25_scores = bm25.get_scores(q_tok)
 
     emb = retriever.encoder.encode([question], normalize_embeddings=True)
-    _, idx = retriever.nn.kneighbors(emb, n_neighbors=len(retriever.passages))
-    sbert_scores = 1 - retriever.nn._fit_X[idx][0]
+    sbert_scores = (emb @ retriever.embeddings.T)[0]
 
     hybrid = alpha * bm25_scores + (1 - alpha) * sbert_scores
     top_idx = hybrid.argsort()[-k:][::-1]
@@ -270,6 +269,7 @@ def predict(args):
         tokenizer.eos_token_id,
         tokenizer.convert_tokens_to_ids("<|eot_id|>") or tokenizer.convert_tokens_to_ids("<|endoftext|>")
     ]
+    terminators.append(tokenizer.encode("\n- ", add_special_tokens=False)[-1])
 
     retriever, pass_tokens = load_retriever(args.adapter_path or pathlib.Path(args.reference_path).parent)
     bm25 = BM25Okapi(pass_tokens)
@@ -304,8 +304,7 @@ def predict(args):
                 pad_token_id=tokenizer.eos_token_id,
                 repetition_penalty=1.05,
                 temperature=0.7,
-                top_p=0.8,
-                stop_sequences=[tokenizer.encode("\n- ", add_special_tokens=False)[-1]]
+                top_p=0.8
             )
 
             text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
