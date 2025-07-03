@@ -1,5 +1,5 @@
 """
-HOW TO RUN (Advised to use virtual environment)
+HOW TO RUN
 
 1. Install dependencies
 chmod +x setup && ./setup
@@ -7,7 +7,9 @@ chmod +x setup && ./setup
 2. Run the model (train + predict)
 chmod +x run && ./run
 
-(Optional) Run inference after training
+(Optional) Predict separately after training
+
+chmod +x train && ./train
 chmod +x predict && ./predict
 
 """
