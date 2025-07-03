@@ -1,4 +1,4 @@
-python RAG_3.py \
+python RAG_5.py \
   --mode train \
   --model_name beomi/Llama-3-Open-Ko-8B-Instruct-preview \
   --reference_path reference.txt \
@@ -7,4 +7,4 @@ python RAG_3.py \
   --dev_path   korean_language_rag_V1.0_dev.json \
   --test_path  korean_language_rag_V1.0_test.json \
   --output_dir ckpt \
-  --output_path submission_RAG4.jsonl
+  --output_path submission_RAG5.jsonl
