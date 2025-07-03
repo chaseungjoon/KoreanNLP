@@ -1,6 +1,6 @@
 python RAG_3.py \
   --mode predict \
-  --model_name beomi/Llama-3-OpenKo-15B-Instruct \
+  --model_name beomi/Llama-3-Open-Ko-8B-Instruct-preview \
   --reference_path reference.txt \
   --hf_token hf_token.txt \
   --adapter_path ckpt \

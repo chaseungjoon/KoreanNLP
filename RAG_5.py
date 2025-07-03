@@ -193,13 +193,12 @@ def train(args):
     model.config.use_cache = False
 
     model = prepare_model_for_kbit_training(model)
-    gpt_neox_targets = ["query_key_value", "dense"]
-
+    
     lora_cfg = LoraConfig(
         r=16,
         lora_alpha=32,
         lora_dropout=0.05,
-        target_modules=gpt_neox_targets,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -217,7 +216,7 @@ def train(args):
         learning_rate=2e-4,
         bf16=True,
         gradient_accumulation_steps=args.grad_accum,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         logging_steps=10,
         report_to="none",
