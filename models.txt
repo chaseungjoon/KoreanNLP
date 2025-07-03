@@ -1,0 +1,3 @@
+EleutherAI/polyglot-ko-12.8b
+beomi/Llama-3-Open-Ko-8B-Instruct-preview
+Qwen/Qwen1.5-7B-Chat

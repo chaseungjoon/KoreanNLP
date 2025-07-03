@@ -1,6 +1,6 @@
-python RAG_5.py \
+python RAG_6.py \
   --mode predict \
-  --model_name beomi/Llama-3-Open-Ko-8B-Instruct-preview \
+  --model_name Qwen/Qwen1.5-7B-Chat \
   --reference_path reference.txt \
   --hf_token hf_token.txt \
   --adapter_path ckpt \
