@@ -1,5 +1,5 @@
 .idea
-.KNLP
+KNLP
 .DS_Store
 __pycache__
 *.jsonl
