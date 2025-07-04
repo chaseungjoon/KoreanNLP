@@ -1,9 +1,7 @@
-python RAG_6.py \
+python RAG_8.py \
   --mode train \
-  --model_name Qwen/Qwen1.5-7B-Chat \
   --reference_path reference.txt \
   --hf_token hf_token.txt \
   --train_path korean_language_rag_V1.0_train.json \
   --dev_path   korean_language_rag_V1.0_dev.json \
   --output_dir ckpt \
-  --output_path submission_RAG5.jsonl
