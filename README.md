@@ -55,3 +55,8 @@ chmod +x predict && ./predict
 | 평가 점수 | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
 |:--------------:|:-----------:|:----------:|:-------------:|:---:|
 | <span style="color:green">**36.5028852**</span> | 26.3052208  | 43.3782998 | 71.3783302 | 25.3450191
+
+### RAG_7 (Llama-3-Open-Ko-8B-Instruct-preview)
+| 평가 점수 | Exact Match |   BLEURT   |   BERTScore   | ROUGE-1 
+|:--------------:|:-----------:|:----------:|:-------------:|:---:|
+| <span style="color:green">**47.9063702**</span> | 44.37751 | 49.2970475 | 73.8285655 | 31.180078
