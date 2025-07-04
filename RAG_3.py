@@ -1,5 +1,5 @@
 """
-HOW TO RUN (Advised to use virtual environment)
+HOW TO RUN
 
 1. Install dependencies
 chmod +x setup && ./setup
