@@ -2,3 +2,4 @@ RAG_3 : EleutherAI/polyglot-ko-12.8b
 RAG_5 : beomi/Llama-3-Open-Ko-8B-Instruct-preview
 RAG_6 : Qwen/Qwen1.5-7B-Chat
 RAG_7 : beomi/Llama-3-Open-Ko-8B-Instruct-preview
+RAG_8 : beomi/Llama-3-Open-Ko-8B-Instruct-preview
