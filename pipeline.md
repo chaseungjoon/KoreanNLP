@@ -7,7 +7,7 @@
     *   **Sparse Retrieval**: `BM25Okapi` is used for keyword-based document matching.
     *   **Dense Retrieval**: `snunlp/KR-SBERT-V40K-klueNLI-augSTS` (SBERT) is used to find semantically similar documents by comparing vector embeddings.
     *   **Reranking**: A `bongsoo/klue-cross-encoder-v1` model is used to rerank the documents retrieved by the hybrid method, further improving relevance.
-3.  **Prompt Engineering**: A structured prompt is used, containing a system message, the retrieved reference documents, the question type, the question itself, and specific instructions based on the question type (e.g., multiple choice, descriptive).
+3.  **Prompt Engineering**: A structured prompt is used, containing a system message, the retrieved reference documents, the question type, the question itself, and specific instructions based on the question type
 
 ### Training Pipeline
 
