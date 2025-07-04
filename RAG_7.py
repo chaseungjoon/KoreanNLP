@@ -102,26 +102,21 @@ class HybridRerankRetriever:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.passages = passages
         
-        # Bi-Encoder for retrieval
         self.bi_encoder = SentenceTransformer(sbert_model, device=device)
         self.embeddings = self.bi_encoder.encode(passages, batch_size=batch, show_progress_bar=True, normalize_embeddings=True)
         
-        # BM25
         self.pass_tokens = [ko_tokenize(p) for p in self.passages]
         self.bm25 = BM25Okapi(self.pass_tokens)
         
-        # Cross-Encoder for re-ranking
         self.cross_encoder = CrossEncoder(reranker_model, device=device)
 
     def query(self, question: str, top_k: int = 5, hybrid_k: int = 50, alpha: float = 0.6):
-        # 1. Hybrid Retrieval (BM25 + SBERT)
         q_tok = ko_tokenize(question)
         bm25_scores = self.bm25.get_scores(q_tok)
         
         q_emb = self.bi_encoder.encode([question], normalize_embeddings=True)
         sbert_scores = (q_emb @ self.embeddings.T)[0]
         
-        # Normalize scores (min-max scaling) to combine them
         norm_bm25 = (bm25_scores - np.min(bm25_scores)) / (np.max(bm25_scores) - np.min(bm25_scores) + 1e-6)
         norm_sbert = (sbert_scores - np.min(sbert_scores)) / (np.max(sbert_scores) - np.min(sbert_scores) + 1e-6)
         
@@ -130,11 +125,9 @@ class HybridRerankRetriever:
         hybrid_top_idx = np.argsort(hybrid_scores)[-hybrid_k:][::-1]
         hybrid_docs = [self.passages[i] for i in hybrid_top_idx]
         
-        # 2. Re-ranking with Cross-Encoder
         cross_inputs = [[question, doc] for doc in hybrid_docs]
         cross_scores = self.cross_encoder.predict(cross_inputs, show_progress_bar=False)
         
-        # Sort based on re-ranking scores
         reranked_results = sorted(zip(cross_scores, hybrid_docs), key=lambda x: x[0], reverse=True)
         
         return [doc for _, doc in reranked_results[:top_k]]
@@ -250,7 +243,6 @@ def train(args):
 
     model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
-    # Save retriever components
     torch.save({
         "passages": retriever.passages, 
         "embeddings": retriever.embeddings, 
