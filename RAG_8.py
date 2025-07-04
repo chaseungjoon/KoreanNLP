@@ -359,7 +359,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", required=True, choices=["train", "predict"])
     p.add_argument("--model_name", default="beomi/Llama-3-Open-Ko-8B-Instruct-preview")
-    p.add_argument("--reference_path", required=True)
+    p.add_argument("--reference_path", required=True, default="reference.txt")
     p.add_argument("--hf_token", default="hf_token.txt")
 
     p.add_argument("--train_path")
@@ -370,7 +370,7 @@ def main():
     p.add_argument("--grad_accum", type=int, default=8)
 
     p.add_argument("--test_path")
-    p.add_argument("--adapter_path")
+    p.add_argument("--adapter_path", default="RAG8_ckpt")
     p.add_argument("--output_path", default="submission_RAG8.jsonl")
 
     args = p.parse_args()
