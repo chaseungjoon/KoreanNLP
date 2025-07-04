@@ -28,7 +28,6 @@ import numpy as np
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-# 1. Prompt Refinement
 PROMPT = "You are a helpful AI assistant. Answer the user's questions based *only* on the provided reference material. Do not include information not present in the references. 당신은 주어진 참고 문헌만을 바탕으로 사용자의 질문에 답변하는 AI 어시스턴트입니다. 참고 문헌에 없는 내용은 답변에 포함하지 마시오."
 INST = {
     "선다형": (
@@ -95,9 +94,7 @@ TOKENIZER FOR BM25
 def ko_tokenize(text: str):
     return re.findall(r"[가-힣]+|[a-zA-Z0-9]+", text.lower())
 
-# 2. Sentence Window Splitting
 def split_into_sentences(text: str) -> List[str]:
-    # More robust sentence splitting for Korean
     sentences = re.split(r'(?<=[.!?])\s+', text.strip())
     return [s.strip() for s in sentences if s.strip()]
 
@@ -105,7 +102,6 @@ def split_into_sentences(text: str) -> List[str]:
 HYBRID RETRIEVAL + RERANKING
 """
 class HybridRerankRetriever:
-    # Now works with sentences instead of passages
     def __init__(self, sentences: List[str], sbert_model: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS", reranker_model: str = "bongsoo/klue-cross-encoder-v1", batch: int = 64):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.sentences = sentences
@@ -125,7 +121,6 @@ class HybridRerankRetriever:
         q_emb = self.bi_encoder.encode([question], normalize_embeddings=True)
         sbert_scores = (q_emb @ self.embeddings.T)[0]
         
-        # Normalize scores to be on a similar scale
         norm_bm25 = (bm25_scores - np.min(bm25_scores)) / (np.max(bm25_scores) - np.min(bm25_scores) + 1e-6)
         norm_sbert = (sbert_scores - np.min(sbert_scores)) / (np.max(sbert_scores) - np.min(sbert_scores) + 1e-6)
         
@@ -155,7 +150,6 @@ class KoreanRAGDataset(Dataset):
         return len(self.items)
 
     def _prompt(self, question: str, qtype: str) -> str:
-        # Simplified retrieval for training prompt generation
         q_emb = self.retriever.bi_encoder.encode([question], normalize_embeddings=True)
         scores = (q_emb @ self.retriever.embeddings.T)[0]
         top_idx = np.argsort(scores)[-7:][::-1] # Use 7 sentences for training prompt
@@ -209,7 +203,6 @@ TRAINING
 def train(args):
     token = get_token(args.hf_token)
 
-    # Use sentence splitting
     reference_text = open(args.reference_path, encoding="utf-8").read()
     sentences = split_into_sentences(reference_text)
     retriever = HybridRerankRetriever(sentences)
@@ -266,8 +259,7 @@ INFERENCE
 """
 def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
     obj = torch.load(os.path.join(saved_dir, "retriever.pt"), map_location="cpu")
-    # Compatibility with old save format
-    sentences = obj.get("sentences", obj.get("passages")) 
+    sentences = obj.get("sentences", obj.get("passages"))
     ret = HybridRerankRetriever(sentences)
     ret.embeddings = obj["embeddings"]
     ret.sent_tokens = obj.get("sent_tokens", obj.get("pass_tokens"))
@@ -275,7 +267,6 @@ def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
     return ret
 
 
-# 4. Robust Post-processing
 def postprocess(text: str) -> str:
     text = text.strip()
     
@@ -283,8 +274,6 @@ def postprocess(text: str) -> str:
     if "답변:" in text:
         text = text.split("답변:")[-1].strip()
 
-    # Handle specific formats like "..."가 옳다.
-    # Regex to find a quoted string followed by "가 옳다"
     m = re.search(r'([\"“`])(.*?)\1\s*가\s*옳다', text)
     if m:
         quote_content = m.group(2).strip()
@@ -296,7 +285,6 @@ def postprocess(text: str) -> str:
             return f"{corrected_sentence} {explanation}"
         return corrected_sentence
 
-    # General cleanup
     text = re.sub(r'\s+', ' ', text).strip() # Normalize whitespace
     
     if not text:
@@ -329,7 +317,6 @@ def predict(args):
             q      = sample["input"]["question"]
             qtype  = sample["input"].get("type", "서술형")
 
-            # Use tuned hyperparameters
             ctx  = retriever.query(q, top_k=7, hybrid_k=75, alpha=0.5)
             ctx_block = "\n".join(f"- {c}" for c in ctx)
             inst = INST.get(qtype, INST["서술형"])
@@ -377,7 +364,6 @@ def main():
 
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
-    # Update output dir
     p.add_argument("--output_dir", default="RAG8_ckpt")
     p.add_argument("--batch", type=int, default=1)
     p.add_argument("--epochs", type=int, default=3)
@@ -385,7 +371,6 @@ def main():
 
     p.add_argument("--test_path")
     p.add_argument("--adapter_path")
-    # Update output path
     p.add_argument("--output_path", default="submission_RAG8.jsonl")
 
     args = p.parse_args()
