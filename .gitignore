@@ -2,5 +2,5 @@
 .DS_Store
 __pycache__
 *.jsonl
-hf_token.txtKNLP/
+hf_token.txt
 KNLP/
