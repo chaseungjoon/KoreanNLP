@@ -18,7 +18,10 @@ from tqdm import tqdm
 from typing import List, Dict, Optional
 import torch
 from torch.utils.data import Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments
+from transformers import (
+    AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, 
+    Trainer, TrainingArguments, TrainerCallback, EarlyStoppingCallback
+)
 from transformers.utils import logging as hf_logging
 from peft import LoraConfig, get_peft_model, PeftModel, prepare_model_for_kbit_training
 from sentence_transformers import SentenceTransformer, CrossEncoder, util
@@ -263,6 +266,24 @@ def load_base_model(name: str, token: Optional[str] = None):
     tok.pad_token = tok.eos_token
     return model, tok
 
+
+class RetrieverSaveCallback(TrainerCallback):
+    """A callback to save the retriever object whenever a model checkpoint is saved."""
+    def __init__(self, retriever):
+        self.retriever = retriever
+
+    def on_save(self, args, state, control, **kwargs):
+        checkpoint_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+        if state.is_world_process_zero and os.path.exists(checkpoint_dir):
+            retriever_path = os.path.join(checkpoint_dir, "retriever.pt")
+            torch.save({
+                "chunks": self.retriever.chunks,
+                "embeddings": self.retriever.embeddings,
+                "chunk_tokens": self.retriever.chunk_tokens
+            }, retriever_path)
+            print(f"Retriever saved to {retriever_path}")
+
+
 """
 TRAINING
 """
@@ -297,6 +318,9 @@ def train(args):
     train_ds = KoreanRAGDataset(train_data, retriever, tokenizer)
     eval_ds = KoreanRAGDataset(dev_data, retriever, tokenizer)
 
+    retriever_callback = RetrieverSaveCallback(retriever)
+    early_stopping_callback = EarlyStoppingCallback(early_stopping_patience=3)
+
     targs = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
@@ -305,8 +329,10 @@ def train(args):
         learning_rate=1e-4,
         bf16=True,
         gradient_accumulation_steps=args.grad_accum,
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        eval_strategy="steps",
+        eval_steps=args.eval_steps,
+        save_strategy="steps",
+        save_steps=args.eval_steps,
         load_best_model_at_end=True,
         save_total_limit=2,
         logging_steps=10,
@@ -314,7 +340,8 @@ def train(args):
     )
 
     Trainer(model=model, tokenizer=tokenizer, args=targs,
-            train_dataset=train_ds, eval_dataset=eval_ds).train()
+            train_dataset=train_ds, eval_dataset=eval_ds, 
+            callbacks=[retriever_callback, early_stopping_callback]).train()
 
     model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
@@ -433,8 +460,9 @@ def main():
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="RAG9_ckpt")
     p.add_argument("--batch", type=int, default=1)
-    p.add_argument("--epochs", type=int, default=3)
+    p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--grad_accum", type=int, default=4)
+    p.add_argument("--eval_steps", type=int, default=100)
 
     p.add_argument("--test_path")
     p.add_argument("--adapter_path", default="RAG9_ckpt")
