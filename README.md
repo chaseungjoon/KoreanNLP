@@ -86,6 +86,6 @@ chmod +x predict && ./predict
 * Additional Tokenization + Sentence Splitting
 * PEFT (Parameter-Efficient Fine-Tuning)
   
-| 평가 점수 | Exact Match |   BLEURT   | BERTScore    | ROUGE-1 
-|:--------------:|:-----------:|:----------:|:------------:|:---:|
-| <span style="color:green">****</span> |  |  |              | 
+|                      평가 점수                      | Exact Match |   BLEURT   | BERTScore  | ROUGE-1 
+|:-----------------------------------------------:|:-----------:|:----------:|:----------:|:---:|
+| <span style="color:green">**50.5155902**</span> | 48.3935743  | 49.9495335 | 74.3985577 |  33.5647271
