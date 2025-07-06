@@ -96,7 +96,7 @@ chmod +x predict && ./predict
   * Dense: `intfloat/multilingual-e5-large`
   * Reranking: `BAAI/bge-reranker-large`
 * Additional data preprocessing
-* Hyperparameter tuning
+* Hyperparameter tuning, Early stopping
 
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
