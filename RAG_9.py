@@ -129,9 +129,10 @@ def semantic_chunking(text: str, embed_model: SentenceTransformer, threshold: fl
 HYBRID RETRIEVAL + RERANKING
 """
 class HybridRerankRetriever:
-    def __init__(self, chunks: List[str], sbert_model: str = "intfloat/multilingual-e5-large", reranker_model: str = "BAAI/bge-reranker-large", batch: int = 32):
+    def __init__(self, chunks: List[str], sbert_model: str = "intfloat/multilingual-e5-large", reranker_model: str = "BAAI/bge-reranker-large", batch: int = 32, use_reranker: bool = True):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.chunks = chunks
+        self.use_reranker = use_reranker
         
         self.bi_encoder = SentenceTransformer(sbert_model, device=device)
         self.embeddings = self.bi_encoder.encode(self.chunks, batch_size=batch, show_progress_bar=True, normalize_embeddings=True)
@@ -139,7 +140,31 @@ class HybridRerankRetriever:
         self.chunk_tokens = [ko_tokenize(c) for c in self.chunks]
         self.bm25 = BM25Okapi(self.chunk_tokens)
         
-        self.cross_encoder = CrossEncoder(reranker_model, device=device)
+        if self.use_reranker:
+            self.cross_encoder = CrossEncoder(reranker_model, device=device)
+        else:
+            self.cross_encoder = None
+
+    @classmethod
+    def from_saved(cls, saved_path: str, use_reranker: bool = True):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        obj = torch.load(saved_path, map_location="cpu")
+        
+        retriever = cls.__new__(cls)
+        
+        retriever.chunks = obj.get("chunks", obj.get("passages"))
+        retriever.embeddings = obj["embeddings"]
+        retriever.chunk_tokens = obj.get("chunk_tokens", obj.get("pass_tokens"))
+        retriever.bm25 = BM25Okapi(retriever.chunk_tokens)
+        retriever.use_reranker = use_reranker
+
+        retriever.bi_encoder = SentenceTransformer("intfloat/multilingual-e5-large", device=device)
+        if use_reranker:
+            retriever.cross_encoder = CrossEncoder("BAAI/bge-reranker-large", device=device)
+        else:
+            retriever.cross_encoder = None
+            
+        return retriever
 
     def query(self, question: str, top_k: int = 5, hybrid_k: int = 50, alpha: float = 0.5):
         q_tok = ko_tokenize(question)
@@ -153,6 +178,10 @@ class HybridRerankRetriever:
         
         hybrid_scores = alpha * norm_bm25 + (1 - alpha) * norm_sbert
         
+        if not self.use_reranker or not self.cross_encoder:
+            top_idx = np.argsort(hybrid_scores)[-top_k:][::-1]
+            return [self.chunks[i] for i in top_idx]
+
         hybrid_top_idx = np.argsort(hybrid_scores)[-hybrid_k:][::-1]
         hybrid_docs = [self.chunks[i] for i in hybrid_top_idx]
         
@@ -354,14 +383,11 @@ def train(args):
 """
 INFERENCE
 """
-def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
-    obj = torch.load(os.path.join(saved_dir, "retriever.pt"), map_location="cpu")
-    chunks = obj.get("chunks", obj.get("passages"))
-    ret = HybridRerankRetriever(chunks)
-    ret.embeddings = obj["embeddings"]
-    ret.chunk_tokens = obj.get("chunk_tokens", obj.get("pass_tokens"))
-    ret.bm25 = BM25Okapi(ret.chunk_tokens)
-    return ret
+def load_retriever_for_inference(saved_dir: str, use_reranker: bool = True) -> HybridRerankRetriever:
+    retriever_path = os.path.join(saved_dir, "retriever.pt")
+    if not os.path.exists(retriever_path):
+        raise FileNotFoundError(f"Retriever file not found at {retriever_path}")
+    return HybridRerankRetriever.from_saved(retriever_path, use_reranker=use_reranker)
 
 
 def postprocess(text: str) -> str:
@@ -395,6 +421,7 @@ def predict(args):
         model = PeftModel.from_pretrained(model, args.adapter_path, token=token)
     model.eval()
 
+    tokenizer.padding_side = "left"
     tokenizer.pad_token = tokenizer.eos_token
     model.config.pad_token_id = tokenizer.eos_token_id
     terminators = [
@@ -402,29 +429,37 @@ def predict(args):
         tokenizer.convert_tokens_to_ids("<|eot_id|>")
     ]
 
-    retriever = load_retriever_for_inference(args.adapter_path or pathlib.Path(args.reference_path).parent)
+    retriever = load_retriever_for_inference(
+        args.adapter_path or pathlib.Path(args.reference_path).parent,
+        use_reranker=False
+    )
     data = load_json(args.test_path)
     hf_logging.set_verbosity_error()
 
     with open(args.output_path, "w", encoding="utf-8") as outf:
-        for sample in tqdm(data, desc="Generating", unit="sample", total=len(data)):
-            q      = sample["input"]["question"]
-            qtype  = sample["input"].get("type", "서술형")
+        for i in tqdm(range(0, len(data), args.batch), desc="Generating", unit="batch"):
+            batch_data = data[i:i+args.batch]
 
-            ctx  = retriever.query(q, top_k=5, hybrid_k=50, alpha=0.5)
-            ctx_block = "\n".join(f"- {c}" for c in ctx)
-            inst = INST.get(qtype, INST["서술형"])
-            prompt = (
-                f"{PROMPT}\n\n"
-                f"[참고 문헌]\n{ctx_block}\n\n"
-                f"[질문 유형]\n{qtype}\n\n"
-                f"[질문]\n{q}\n\n"
-                f"{inst}\n\n"
-                f"답변:"
-            )
+            prompts = []
+            for sample in batch_data:
+                q = sample["input"]["question"]
+                qtype = sample["input"].get("type", "서술형")
 
-            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-            
+                ctx = retriever.query(q, top_k=5)
+                ctx_block = "\n".join(f"- {c}" for c in ctx)
+                inst = INST.get(qtype, INST["서술형"])
+
+                prompts.append(
+                    f"{PROMPT}\n\n"
+                    f"[참고 문헌]\n{ctx_block}\n\n"
+                    f"[질문 유형]\n{qtype}\n\n"
+                    f"[질문]\n{q}\n\n"
+                    f"{inst}\n\n"
+                    f"답변:"
+                )
+
+            inputs = tokenizer(prompts, return_tensors="pt", padding=True).to(model.device)
+
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=1024,
@@ -435,14 +470,16 @@ def predict(args):
                 top_p=0.9
             )
 
-            text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
-            answer = postprocess(text)
+            texts = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
 
-            outf.write(json.dumps({
-                "id": sample["id"],
-                "input": sample["input"],
-                "output": {"answer": answer}
-            }, ensure_ascii=False) + "\n")
+            for j, text in enumerate(texts):
+                answer = postprocess(text)
+                sample = batch_data[j]
+                outf.write(json.dumps({
+                    "id": sample["id"],
+                    "input": sample["input"],
+                    "output": {"answer": answer}
+                }, ensure_ascii=False) + "\n")
 
     print(f"Saved predictions → {args.output_path}")
 
