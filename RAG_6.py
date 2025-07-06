@@ -335,20 +335,20 @@ MAIN FUNCTION
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", required=True, choices=["train", "predict"])
-    p.add_argument("--model_name", required=True)
+    p.add_argument("--model_name", default="Qwen/Qwen1.5-7B-Chat")
     p.add_argument("--reference_path", required=True)
-    p.add_argument("--hf_token")
+    p.add_argument("--hf_token", default="hf_token.txt")
 
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
-    p.add_argument("--output_dir", default="ckpt")
+    p.add_argument("--output_dir", default="RAG6_ckpt")
     p.add_argument("--batch", type=int, default=1)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--grad_accum", type=int, default=8)
 
     p.add_argument("--test_path")
-    p.add_argument("--adapter_path")
-    p.add_argument("--output_path", default="submission.jsonl")
+    p.add_argument("--adapter_path", default="RAG6_ckpt")
+    p.add_argument("--output_path", default="submission_RAG6.jsonl")
 
     args = p.parse_args()
 

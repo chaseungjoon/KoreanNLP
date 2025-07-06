@@ -359,7 +359,7 @@ def main():
     p.add_argument("--grad_accum", type=int, default=8)
 
     p.add_argument("--test_path")
-    p.add_argument("--adapter_path")
+    p.add_argument("--adapter_path", default="RAG7_ckpt")
     p.add_argument("--output_path", default="submission_RAG7.jsonl")
 
     args = p.parse_args()
