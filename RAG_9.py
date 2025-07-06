@@ -109,7 +109,6 @@ def semantic_chunking(text: str, embed_model: SentenceTransformer, threshold: fl
     current_chunk = [sentences[0]]
     
     for i in range(1, len(sentences)):
-        # Compare similarity of the current sentence with the last sentence of the current chunk
         similarity = util.pytorch_cos_sim(embeddings[i], embeddings[i-1])[0][0].item()
         
         if similarity < threshold and len(" ".join(current_chunk)) >= min_chunk_size:
@@ -170,36 +169,70 @@ class KoreanRAGDataset(Dataset):
         self.retriever = retriever
         self.tokenizer = tokenizer
         self.max_len = max_len
+        self.processed_items = []
+
+        print("Pre-processing dataset...")
+        all_questions = [item["input"]["question"] for item in self.items]
+        
+        q_embs = self.retriever.bi_encoder.encode(all_questions, normalize_embeddings=True, show_progress_bar=True)
+        
+        all_scores = q_embs @ self.retriever.embeddings.T
+        
+        for i, item in tqdm(enumerate(self.items), total=len(self.items), desc="Formatting prompts"):
+            q = item["input"]["question"]
+            qtype = item["input"].get("type", "서술형")
+            a = item["output"]["answer"]
+            
+            scores = all_scores[i]
+            top_idx = np.argsort(scores)[-5:][::-1]
+            ctx = [self.retriever.chunks[j] for j in top_idx]
+            ctx_block = "\n".join(f"- {c}" for c in ctx)
+            inst = INST.get(qtype, INST["서술형"])
+            
+            prompt = (
+                f"{PROMPT}\n\n"
+                f"[참고 문헌]\n{ctx_block}\n\n"
+                f"[질문 유형]\n{qtype}\n\n"
+                f"[질문]\n{q}\n\n"
+                f"{inst}\n\n답변:"
+            )
+            
+            self.processed_items.append({"prompt": prompt, "answer": a})
 
     def __len__(self):
-        return len(self.items)
-
-    def _prompt(self, question: str, qtype: str) -> str:
-        # For training, we use a simpler retrieval to avoid slowing down the process too much
-        q_emb = self.retriever.bi_encoder.encode([question], normalize_embeddings=True)
-        scores = (q_emb @ self.retriever.embeddings.T)[0]
-        top_idx = np.argsort(scores)[-5:][::-1] # Use 5 chunks for training prompt
-        ctx = [self.retriever.chunks[i] for i in top_idx]
-
-        ctx_block = "\n".join(f"- {c}" for c in ctx)
-        inst = INST.get(qtype, INST["서술형"])
-        return (
-            f"{PROMPT}\n\n"
-            f"[참고 문헌]\n{ctx_block}\n\n"
-            f"[질문 유형]\n{qtype}\n\n"
-            f"[질문]\n{question}\n\n"
-            f"{inst}\n\n답변:"
-        )
+        return len(self.processed_items)
 
     def __getitem__(self, idx):
-        sample = self.items[idx]
-        q = sample["input"]["question"]
-        qtype = sample["input"].get("type", "서술형")
-        a = sample["output"]["answer"]
-        text = self._prompt(q, qtype) + " " + a
-        tok = self.tokenizer(text, truncation=True, max_length=self.max_len, padding="max_length")
-        tok["labels"] = tok["input_ids"].copy()
-        return {k: torch.tensor(v) for k, v in tok.items()}
+        item = self.processed_items[idx]
+        prompt = item["prompt"]
+        answer = item["answer"]
+
+        answer_tok = self.tokenizer(answer, truncation=True, max_length=self.max_len // 2) # Allocate half max_len for safety
+        
+        prompt_max_len = self.max_len - len(answer_tok['input_ids']) - 1 # -1 for EOS token
+        
+        prompt_tok = self.tokenizer(prompt, truncation=True, max_length=prompt_max_len)
+
+        input_ids = prompt_tok['input_ids'] + answer_tok['input_ids'] + [self.tokenizer.eos_token_id]
+        attention_mask = prompt_tok['attention_mask'] + answer_tok['attention_mask'] + [1]
+        
+        labels = [-100] * len(prompt_tok['input_ids']) + answer_tok['input_ids'] + [self.tokenizer.eos_token_id]
+
+        pad_len = self.max_len - len(input_ids)
+        if pad_len > 0:
+            input_ids += [self.tokenizer.pad_token_id] * pad_len
+            attention_mask += [0] * pad_len
+            labels += [-100] * pad_len
+        
+        input_ids = input_ids[:self.max_len]
+        attention_mask = attention_mask[:self.max_len]
+        labels = labels[:self.max_len]
+
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
+        }
 
 """
 LOAD JSON DATA
@@ -224,7 +257,7 @@ def load_base_model(name: str, token: Optional[str] = None):
         trust_remote_code=True, 
         quantization_config=bnb_cfg, 
         token=token,
-        attn_implementation="eager"
+        attn_implementation="sdpa"
     )
     tok = AutoTokenizer.from_pretrained(name, trust_remote_code=True, token=token)
     tok.pad_token = tok.eos_token
@@ -236,7 +269,6 @@ TRAINING
 def train(args):
     token = get_token(args.hf_token)
 
-    # Setup for Semantic Chunking
     embed_model = SentenceTransformer("intfloat/multilingual-e5-large", device="cuda" if torch.cuda.is_available() else "cpu")
     reference_text = open(args.reference_path, encoding="utf-8").read()
     chunks = semantic_chunking(reference_text, embed_model)
@@ -252,10 +284,9 @@ def train(args):
     model = prepare_model_for_kbit_training(model)
     
     lora_cfg = LoraConfig(
-        r=64, # Increased rank
-        lora_alpha=128, # Increased alpha
+        r=64,
+        lora_alpha=128,
         lora_dropout=0.1,
-        # Target modules might need adjustment based on the model architecture
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         bias="none",
         task_type="CAUSAL_LM",
@@ -271,11 +302,13 @@ def train(args):
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch,
         per_device_eval_batch_size=args.batch,
-        learning_rate=1e-4, # Adjusted learning rate
+        learning_rate=1e-4,
         bf16=True,
         gradient_accumulation_steps=args.grad_accum,
         eval_strategy="epoch",
         save_strategy="epoch",
+        load_best_model_at_end=True,
+        save_total_limit=2,
         logging_steps=10,
         report_to="none",
     )
@@ -401,7 +434,7 @@ def main():
     p.add_argument("--output_dir", default="RAG9_ckpt")
     p.add_argument("--batch", type=int, default=1)
     p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--grad_accum", type=int, default=8)
+    p.add_argument("--grad_accum", type=int, default=4)
 
     p.add_argument("--test_path")
     p.add_argument("--adapter_path", default="RAG9_ckpt")
