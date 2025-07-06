@@ -426,7 +426,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", required=True, choices=["train", "predict"])
     p.add_argument("--model_name", default="yanolja/EEVE-Korean-Instruct-10.8B-v1.0")
-    p.add_argument("--reference_path", required=True)
+    p.add_argument("--reference_path", default="reference.txt")
     p.add_argument("--hf_token", default="hf_token.txt")
 
     p.add_argument("--train_path")

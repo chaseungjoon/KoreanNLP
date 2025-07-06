@@ -2,5 +2,4 @@ python RAG_9.py \
   --mode train \
   --train_path korean_language_rag_V1.0_train.json \
   --dev_path   korean_language_rag_V1.0_dev.json \
-  --test_path  korean_language_rag_V1.0_test.json \
-  --reference_path reference.txt
+  --test_path  korean_language_rag_V1.0_test.json
