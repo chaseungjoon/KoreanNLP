@@ -10,4 +10,3 @@ sentence-transformers
 faiss-cpu
 scikit-learn
 rank_bm25
-flash-attn

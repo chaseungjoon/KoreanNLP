@@ -21,7 +21,7 @@ from torch.utils.data import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments
 from transformers.utils import logging as hf_logging
 from peft import LoraConfig, get_peft_model, PeftModel, prepare_model_for_kbit_training
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from sentence_transformers import SentenceTransformer, CrossEncoder, util
 from rank_bm25 import BM25Okapi
 import numpy as np
 
@@ -224,7 +224,7 @@ def load_base_model(name: str, token: Optional[str] = None):
         trust_remote_code=True, 
         quantization_config=bnb_cfg, 
         token=token,
-        attn_implementation="flash_attention_2" # Use Flash Attention 2
+        attn_implementation="eager"
     )
     tok = AutoTokenizer.from_pretrained(name, trust_remote_code=True, token=token)
     tok.pad_token = tok.eos_token
