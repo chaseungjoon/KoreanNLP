@@ -228,7 +228,7 @@ class HybridRerankRetriever:
 DATASET FOR RAG
 """
 class KoreanRAGDataset(Dataset):
-    def __init__(self, items: List[Dict], retriever: HybridRerankRetriever, tokenizer, max_len: int = 4096):
+    def __init__(self, items: List[Dict], retriever: HybridRerankRetriever, tokenizer, max_len: int = 2048):
         self.items = items
         self.retriever = retriever
         self.tokenizer = tokenizer
@@ -366,8 +366,8 @@ def train(args):
     model = prepare_model_for_kbit_training(model)
 
     lora_cfg = LoraConfig(
-        r=64,
-        lora_alpha=128,
+        r=16,
+        lora_alpha=32,
         lora_dropout=0.1,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         bias="none",
@@ -492,7 +492,7 @@ def predict(args):
                     f"답변:"
                 )
 
-            inputs = tokenizer(prompts, return_tensors="pt", padding=True).to(model.device)
+            inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=args.max_len - 1024).to(model.device)
 
             outputs = model.generate(
                 **inputs,
@@ -530,10 +530,11 @@ def main():
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="RAG9_ckpt")
-    p.add_argument("--batch", type=int, default=8) # Increased default batch size
+    p.add_argument("--batch", type=int, default=1)
     p.add_argument("--epochs", type=int, default=5)
-    p.add_argument("--grad_accum", type=int, default=4)
+    p.add_argument("--grad_accum", type=int, default=16)
     p.add_argument("--eval_steps", type=int, default=100)
+    p.add_argument("--max_len", type=int, default=2048)
 
     p.add_argument("--test_path")
     p.add_argument("--adapter_path", default="RAG9_ckpt")
