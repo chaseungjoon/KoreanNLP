@@ -192,6 +192,38 @@ class HybridRerankRetriever:
         
         return [doc for _, doc in reranked_results[:top_k]]
 
+    def query_batch(self, questions: List[str], top_k: int = 5, alpha: float = 0.5) -> List[List[str]]:
+        """Batched version of query for faster inference."""
+        # BM25 scores (looping is necessary for this library)
+        bm25_scores_list = [self.bm25.get_scores(ko_tokenize(q)) for q in questions]
+        bm25_scores_batch = np.array(bm25_scores_list)
+
+        # SBERT scores (fully batched)
+        q_embs = self.bi_encoder.encode(questions, normalize_embeddings=True, show_progress_bar=False)
+        sbert_scores_batch = q_embs @ self.embeddings.T
+
+        # Normalize scores per query using batched numpy operations
+        min_bm25 = np.min(bm25_scores_batch, axis=1, keepdims=True)
+        max_bm25 = np.max(bm25_scores_batch, axis=1, keepdims=True)
+        norm_bm25 = (bm25_scores_batch - min_bm25) / (max_bm25 - min_bm25 + 1e-6)
+
+        min_sbert = np.min(sbert_scores_batch, axis=1, keepdims=True)
+        max_sbert = np.max(sbert_scores_batch, axis=1, keepdims=True)
+        norm_sbert = (sbert_scores_batch - min_sbert) / (max_sbert - min_sbert + 1e-6)
+
+        hybrid_scores_batch = alpha * norm_bm25 + (1 - alpha) * norm_sbert
+
+        # Get top_k indices for each query in the batch
+        top_k_indices_batch = np.argsort(hybrid_scores_batch, axis=1)[:, -top_k:]
+        top_k_indices_batch = np.flip(top_k_indices_batch, axis=1)
+
+        # Retrieve chunks for each query
+        results = []
+        for indices in top_k_indices_batch:
+            results.append([self.chunks[i] for i in indices])
+
+        return results
+
 """
 DATASET FOR RAG
 """
@@ -205,22 +237,22 @@ class KoreanRAGDataset(Dataset):
 
         print("Pre-processing dataset...")
         all_questions = [item["input"]["question"] for item in self.items]
-        
+
         q_embs = self.retriever.bi_encoder.encode(all_questions, normalize_embeddings=True, show_progress_bar=True)
-        
+
         all_scores = q_embs @ self.retriever.embeddings.T
-        
+
         for i, item in tqdm(enumerate(self.items), total=len(self.items), desc="Formatting prompts"):
             q = item["input"]["question"]
             qtype = item["input"].get("type", "서술형")
             a = item["output"]["answer"]
-            
+
             scores = all_scores[i]
             top_idx = np.argsort(scores)[-5:][::-1]
             ctx = [self.retriever.chunks[j] for j in top_idx]
             ctx_block = "\n".join(f"- {c}" for c in ctx)
             inst = INST.get(qtype, INST["서술형"])
-            
+
             prompt = (
                 f"{PROMPT}\n\n"
                 f"[참고 문헌]\n{ctx_block}\n\n"
@@ -228,7 +260,7 @@ class KoreanRAGDataset(Dataset):
                 f"[질문]\n{q}\n\n"
                 f"{inst}\n\n답변:"
             )
-            
+
             self.processed_items.append({"prompt": prompt, "answer": a})
 
     def __len__(self):
@@ -240,14 +272,14 @@ class KoreanRAGDataset(Dataset):
         answer = item["answer"]
 
         answer_tok = self.tokenizer(answer, truncation=True, max_length=self.max_len // 2) # Allocate half max_len for safety
-        
+
         prompt_max_len = self.max_len - len(answer_tok['input_ids']) - 1 # -1 for EOS token
-        
+
         prompt_tok = self.tokenizer(prompt, truncation=True, max_length=prompt_max_len)
 
         input_ids = prompt_tok['input_ids'] + answer_tok['input_ids'] + [self.tokenizer.eos_token_id]
         attention_mask = prompt_tok['attention_mask'] + answer_tok['attention_mask'] + [1]
-        
+
         labels = [-100] * len(prompt_tok['input_ids']) + answer_tok['input_ids'] + [self.tokenizer.eos_token_id]
 
         pad_len = self.max_len - len(input_ids)
@@ -255,7 +287,7 @@ class KoreanRAGDataset(Dataset):
             input_ids += [self.tokenizer.pad_token_id] * pad_len
             attention_mask += [0] * pad_len
             labels += [-100] * pad_len
-        
+
         input_ids = input_ids[:self.max_len]
         attention_mask = attention_mask[:self.max_len]
         labels = labels[:self.max_len]
@@ -278,16 +310,16 @@ LOAD BASE MODEL
 """
 def load_base_model(name: str, token: Optional[str] = None):
     bnb_cfg = BitsAndBytesConfig(
-        load_in_4bit=True, 
+        load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
     )
     model = AutoModelForCausalLM.from_pretrained(
-        name, 
-        device_map="auto", 
-        trust_remote_code=True, 
-        quantization_config=bnb_cfg, 
+        name,
+        device_map="auto",
+        trust_remote_code=True,
+        quantization_config=bnb_cfg,
         token=token,
         attn_implementation="sdpa"
     )
@@ -322,7 +354,7 @@ def train(args):
     embed_model = SentenceTransformer("intfloat/multilingual-e5-large", device="cuda" if torch.cuda.is_available() else "cpu")
     reference_text = open(args.reference_path, encoding="utf-8").read()
     chunks = semantic_chunking(reference_text, embed_model)
-    
+
     retriever = HybridRerankRetriever(chunks)
 
     train_data = load_json(args.train_path)
@@ -332,7 +364,7 @@ def train(args):
     model.config.use_cache = False
 
     model = prepare_model_for_kbit_training(model)
-    
+
     lora_cfg = LoraConfig(
         r=64,
         lora_alpha=128,
@@ -369,14 +401,14 @@ def train(args):
     )
 
     Trainer(model=model, tokenizer=tokenizer, args=targs,
-            train_dataset=train_ds, eval_dataset=eval_ds, 
+            train_dataset=train_ds, eval_dataset=eval_ds,
             callbacks=[retriever_callback, early_stopping_callback]).train()
 
     model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
     torch.save({
-        "chunks": retriever.chunks, 
-        "embeddings": retriever.embeddings, 
+        "chunks": retriever.chunks,
+        "embeddings": retriever.embeddings,
         "chunk_tokens": retriever.chunk_tokens
     }, os.path.join(args.output_dir, "retriever.pt"))
 
@@ -392,7 +424,7 @@ def load_retriever_for_inference(saved_dir: str, use_reranker: bool = True) -> H
 
 def postprocess(text: str) -> str:
     text = text.strip()
-    
+
     if "답변:" in text:
         text = text.split("답변:")[-1].strip()
 
@@ -406,10 +438,10 @@ def postprocess(text: str) -> str:
         return corrected_sentence
 
     text = re.sub(r'\s+', ' ', text).strip()
-    
+
     if not text:
         return "답변을 생성하지 못했습니다."
-        
+
     return text
 
 
@@ -440,12 +472,14 @@ def predict(args):
         for i in tqdm(range(0, len(data), args.batch), desc="Generating", unit="batch"):
             batch_data = data[i:i+args.batch]
 
+            # Batched retrieval for massive speedup
+            batch_questions = [sample["input"]["question"] for sample in batch_data]
+            batch_contexts = retriever.query_batch(batch_questions, top_k=5)
+
             prompts = []
-            for sample in batch_data:
+            for sample, ctx in zip(batch_data, batch_contexts):
                 q = sample["input"]["question"]
                 qtype = sample["input"].get("type", "서술형")
-
-                ctx = retriever.query(q, top_k=5)
                 ctx_block = "\n".join(f"- {c}" for c in ctx)
                 inst = INST.get(qtype, INST["서술형"])
 
@@ -496,7 +530,7 @@ def main():
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="RAG9_ckpt")
-    p.add_argument("--batch", type=int, default=1)
+    p.add_argument("--batch", type=int, default=8) # Increased default batch size
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--grad_accum", type=int, default=4)
     p.add_argument("--eval_steps", type=int, default=100)
@@ -506,7 +540,7 @@ def main():
     p.add_argument("--output_path", default="submission_RAG9.jsonl")
 
     args = p.parse_args()
-    
+
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
     if args.adapter_path:
