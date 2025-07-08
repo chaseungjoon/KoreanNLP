@@ -96,8 +96,17 @@ chmod +x predict && ./predict
   * Dense: `intfloat/multilingual-e5-large`
   * Reranking: `BAAI/bge-reranker-large`
 * Semantic chunking
-* Use early stopping
+* Early stopping
 
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
 | <span style="color:green">**22.5340542**</span> |    0.00     |    44.1237656     |      68.6064641     |  22.4740958
+
+### RAG_10 (10.8b)
+* Model : `yanolja/EEVE-Korean-Instruct-10.8B-v1.0`
+* Retriever : RAG_8 Ver.
+* Early stopping
+
+|                     평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
+|:----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
+|     <span style="color:green">****</span>      |             |         |           |  
