@@ -95,7 +95,7 @@ chmod +x predict && ./predict
 * Retriever : `HybridRerankRetriever`
   * Dense: `intfloat/multilingual-e5-large`
   * Reranking: `BAAI/bge-reranker-large`
-* Additional data preprocessing
+* Semantic chunking
 * Use early stopping
 
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
