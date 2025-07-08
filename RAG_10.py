@@ -228,6 +228,29 @@ def load_base_model(name: str, load_in_4bit: bool = True, token: Optional[str] =
     tok.pad_token = tok.eos_token
     return model, tok
 
+
+"""
+CUSTOM TRAINER FOR SAVING RETRIEVER
+"""
+class CustomTrainer(Trainer):
+    def __init__(self, *args, retriever=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.retriever = retriever
+
+    def _save_checkpoint(self, model, trial, metrics=None):
+        super()._save_checkpoint(model, trial, metrics)
+        if self.retriever:
+            from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+            checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+            output_dir = os.path.join(self.args.output_dir, checkpoint_folder)
+            os.makedirs(output_dir, exist_ok=True)
+            torch.save({
+                "sentences": self.retriever.sentences,
+                "embeddings": self.retriever.embeddings,
+                "sent_tokens": self.retriever.sent_tokens
+            }, os.path.join(output_dir, "retriever.pt"))
+
+
 """
 TRAINING
 """
@@ -270,16 +293,21 @@ def train(args):
         learning_rate=2e-4,
         bf16=True,
         gradient_accumulation_steps=args.grad_accum,
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        eval_strategy="steps",
+        save_strategy="steps",
+        eval_steps=100,
+        save_steps=100,
+        save_total_limit=5,
         logging_steps=10,
         report_to="none",
         load_best_model_at_end=True,
     )
 
-    Trainer(model=model, tokenizer=tokenizer, args=targs,
+    trainer = CustomTrainer(model=model, tokenizer=tokenizer, args=targs,
             train_dataset=train_ds, eval_dataset=eval_ds,
-            callbacks=[early_stopping_callback]).train()
+            callbacks=[early_stopping_callback],
+            retriever=retriever)
+    trainer.train()
 
     model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
