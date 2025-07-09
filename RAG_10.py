@@ -143,16 +143,12 @@ class HybridRerankRetriever:
         return [doc for _, doc in reranked_results[:top_k]]
     
     def query_batch(self, questions: List[str], top_k: int = 7, hybrid_k: int = 75, alpha: float = 0.5) -> List[List[str]]:
-        """Batched version of query for faster inference."""
-        # BM25 scores (looping is necessary for this library, can be slow)
         bm25_scores_list = [self.bm25.get_scores(ko_tokenize(q)) for q in questions]
         bm25_scores_batch = np.array(bm25_scores_list)
 
-        # SBERT scores (fully batched)
         q_embs = self.bi_encoder.encode(questions, normalize_embeddings=True, show_progress_bar=True)
         sbert_scores_batch = q_embs @ self.embeddings.T
 
-        # Normalize scores per query using batched numpy operations
         min_bm25 = np.min(bm25_scores_batch, axis=1, keepdims=True)
         max_bm25 = np.max(bm25_scores_batch, axis=1, keepdims=True)
         norm_bm25 = (bm25_scores_batch - min_bm25) / (max_bm25 - min_bm25 + 1e-6)
@@ -163,11 +159,9 @@ class HybridRerankRetriever:
 
         hybrid_scores_batch = alpha * norm_bm25 + (1 - alpha) * norm_sbert
 
-        # Get top hybrid_k indices for each query in the batch
         hybrid_top_indices_batch = np.argsort(hybrid_scores_batch, axis=1)[:, -hybrid_k:]
         hybrid_top_indices_batch = np.flip(hybrid_top_indices_batch, axis=1)
 
-        # Prepare for cross-encoder reranking
         all_cross_inputs = []
         query_doc_counts = []
         original_docs = []
@@ -180,10 +174,8 @@ class HybridRerankRetriever:
             all_cross_inputs.extend(cross_inputs)
             query_doc_counts.append(len(cross_inputs))
 
-        # Rerank all pairs in one batch
         all_cross_scores = self.cross_encoder.predict(all_cross_inputs, show_progress_bar=True)
 
-        # Process results for each query
         results = []
         current_idx = 0
         for i, count in enumerate(query_doc_counts):
@@ -238,7 +230,6 @@ def preprocess_and_cache_dataset(data: List[Dict], retriever: HybridRerankRetrie
     print(f"Preprocessing and caching data to {cache_path}...")
     questions = [item['input']['question'] for item in data]
     
-    # Use the batched query for efficiency
     retrieved_contexts = retriever.query_batch(questions, top_k=7)
 
     cached_data = []
@@ -313,7 +304,6 @@ def train(args):
     train_data = load_json(args.train_path)
     dev_data = load_json(args.dev_path) if args.dev_path else train_data[: max(1, len(train_data) // 10)]
 
-    # Preprocess and cache datasets
     train_cache_path = os.path.join(args.output_dir, "train_cache.pt")
     dev_cache_path = os.path.join(args.output_dir, "dev_cache.pt")
     cached_train_data = preprocess_and_cache_dataset(train_data, retriever, train_cache_path)
@@ -381,7 +371,6 @@ def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
     embeddings = obj["embeddings"]
     sent_tokens = obj.get("sent_tokens", obj.get("pass_tokens"))
     
-    # Ensure embeddings are float32 numpy array
     if isinstance(embeddings, torch.Tensor):
         embeddings = embeddings.cpu().numpy()
     if embeddings.dtype != np.float32:
@@ -394,22 +383,19 @@ def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
 def postprocess(text: str) -> str:
     text = text.strip()
     
-    # Remove prompt remnants
     if "답변:" in text:
         text = text.split("답변:")[-1].strip()
 
     m = re.search(r'([\"“`])(.*?)\1\s*가\s*옳다', text)
     if m:
         quote_content = m.group(2).strip()
-        # Reconstruct the core answer
         corrected_sentence = f'\"{quote_content}\"가 옳다.'
-        # Find the explanation part that follows
         explanation = text[m.end():].strip(' .')
         if explanation:
             return f"{corrected_sentence} {explanation}"
         return corrected_sentence
 
-    text = re.sub(r'\s+', ' ', text).strip() # Normalize whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
     
     if not text:
         return "답변을 생성하지 못했습니다."
@@ -441,13 +427,15 @@ def predict(args):
         for i in tqdm(range(0, len(data), args.batch), desc="Generating", unit="batch"):
             batch_data = data[i:i+args.batch]
             batch_questions = [sample["input"]["question"] for sample in batch_data]
-            batch_contexts = retriever.query_batch(batch_questions, top_k=7, hybrid_k=75, alpha=0.5)
+            
+            print("--- Calling retriever.query_batch ---")
+            batch_contexts = retriever.query_batch(batch_questions, top_k=7, hybrid_k=25, alpha=0.5)
             
             prompts = []
             for sample, ctx in zip(batch_data, batch_contexts):
                 q = sample["input"]["question"]
                 qtype = sample["input"].get("type", "서술형")
-                ctx_block = "\n".join(f"- {c}" for c in ctx)
+                ctx_block = "".join(f"- {c}" for c in ctx)
                 inst = INST.get(qtype, INST["서술형"])
 
                 prompts.append(
@@ -459,11 +447,14 @@ def predict(args):
                     f"답변:"
                 )
             
+            print("--- Prompts created ---")
             inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=args.max_len - 1024).to(model.device)
+            print(f"--- Tokenizer finished ---")
 
+            print("--- Calling model.generate() ---")
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=1024,
+                max_new_tokens=256,
                 eos_token_id=terminators,
                 pad_token_id=tokenizer.eos_token_id,
                 repetition_penalty=1.05,
@@ -480,7 +471,7 @@ def predict(args):
                     "id": sample["id"],
                     "input": sample["input"],
                     "output": {"answer": answer}
-                }, ensure_ascii=False) + "\n")
+                }, ensure_ascii=False) + "")
 
     print(f"Saved predictions → {args.output_path}")
 
@@ -497,7 +488,7 @@ def main():
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="RAG10_ckpt")
-    p.add_argument("--batch", type=int, default=16)
+    p.add_argument("--batch", type=int, default=1)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--grad_accum", type=int, default=8)
     p.add_argument("--max_len", type=int, default=2048)
@@ -533,3 +524,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
