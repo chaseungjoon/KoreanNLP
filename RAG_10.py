@@ -149,7 +149,7 @@ class HybridRerankRetriever:
         bm25_scores_batch = np.array(bm25_scores_list)
 
         # SBERT scores (fully batched)
-        q_embs = self.bi_encoder.encode(questions, normalize_embeddings=True, show_progress_bar=False)
+        q_embs = self.bi_encoder.encode(questions, normalize_embeddings=True, show_progress_bar=True)
         sbert_scores_batch = q_embs @ self.embeddings.T
 
         # Normalize scores per query using batched numpy operations
@@ -181,7 +181,7 @@ class HybridRerankRetriever:
             query_doc_counts.append(len(cross_inputs))
 
         # Rerank all pairs in one batch
-        all_cross_scores = self.cross_encoder.predict(all_cross_inputs, show_progress_bar=False)
+        all_cross_scores = self.cross_encoder.predict(all_cross_inputs, show_progress_bar=True)
 
         # Process results for each query
         results = []
