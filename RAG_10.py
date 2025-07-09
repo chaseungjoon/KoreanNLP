@@ -101,17 +101,24 @@ def split_into_sentences(text: str) -> List[str]:
 HYBRID RETRIEVAL + RERANKING
 """
 class HybridRerankRetriever:
-    def __init__(self, sentences: List[str], sbert_model: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS", reranker_model: str = "bongsoo/klue-cross-encoder-v1", batch: int = 64):
+    def __init__(self, sentences: List[str], sbert_model: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS", reranker_model: str = "bongsoo/klue-cross-encoder-v1", batch: int = 64, embeddings: Optional[np.ndarray] = None, sent_tokens: Optional[List[List[str]]] = None):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.sentences = sentences
         
         self.bi_encoder = SentenceTransformer(sbert_model, device=device)
-        self.embeddings = self.bi_encoder.encode(self.sentences, batch_size=batch, show_progress_bar=True, normalize_embeddings=True)
-        
-        self.sent_tokens = [ko_tokenize(s) for s in self.sentences]
-        self.bm25 = BM25Okapi(self.sent_tokens)
-        
         self.cross_encoder = CrossEncoder(reranker_model, device=device)
+
+        if embeddings is not None:
+            self.embeddings = embeddings
+        else:
+            self.embeddings = self.bi_encoder.encode(self.sentences, batch_size=batch, show_progress_bar=True, normalize_embeddings=True)
+        
+        if sent_tokens is not None:
+            self.sent_tokens = sent_tokens
+        else:
+            self.sent_tokens = [ko_tokenize(s) for s in self.sentences]
+        
+        self.bm25 = BM25Okapi(self.sent_tokens)
 
     def query(self, question: str, top_k: int = 7, hybrid_k: int = 75, alpha: float = 0.5): # 3. Hyperparameter Tuning
         q_tok = ko_tokenize(question)
@@ -137,7 +144,7 @@ class HybridRerankRetriever:
     
     def query_batch(self, questions: List[str], top_k: int = 7, hybrid_k: int = 75, alpha: float = 0.5) -> List[List[str]]:
         """Batched version of query for faster inference."""
-        # BM25 scores (looping is necessary for this library)
+        # BM25 scores (looping is necessary for this library, can be slow)
         bm25_scores_list = [self.bm25.get_scores(ko_tokenize(q)) for q in questions]
         bm25_scores_batch = np.array(bm25_scores_list)
 
@@ -156,14 +163,37 @@ class HybridRerankRetriever:
 
         hybrid_scores_batch = alpha * norm_bm25 + (1 - alpha) * norm_sbert
 
-        # Get top_k indices for each query in the batch
-        top_k_indices_batch = np.argsort(hybrid_scores_batch, axis=1)[:, -top_k:]
-        top_k_indices_batch = np.flip(top_k_indices_batch, axis=1)
+        # Get top hybrid_k indices for each query in the batch
+        hybrid_top_indices_batch = np.argsort(hybrid_scores_batch, axis=1)[:, -hybrid_k:]
+        hybrid_top_indices_batch = np.flip(hybrid_top_indices_batch, axis=1)
 
-        # Retrieve chunks for each query
+        # Prepare for cross-encoder reranking
+        all_cross_inputs = []
+        query_doc_counts = []
+        original_docs = []
+
+        for i, question in enumerate(questions):
+            indices = hybrid_top_indices_batch[i]
+            hybrid_docs = [self.sentences[idx] for idx in indices]
+            original_docs.append(hybrid_docs)
+            cross_inputs = [[question, doc] for doc in hybrid_docs]
+            all_cross_inputs.extend(cross_inputs)
+            query_doc_counts.append(len(cross_inputs))
+
+        # Rerank all pairs in one batch
+        all_cross_scores = self.cross_encoder.predict(all_cross_inputs, show_progress_bar=False)
+
+        # Process results for each query
         results = []
-        for indices in top_k_indices_batch:
-            results.append([self.sentences[i] for i in indices])
+        current_idx = 0
+        for i, count in enumerate(query_doc_counts):
+            cross_scores = all_cross_scores[current_idx : current_idx + count]
+            docs_for_query = original_docs[i]
+            
+            reranked_results = sorted(zip(cross_scores, docs_for_query), key=lambda x: x[0], reverse=True)
+            results.append([doc for _, doc in reranked_results[:top_k]])
+            
+            current_idx += count
 
         return results
 
@@ -171,40 +201,59 @@ class HybridRerankRetriever:
 DATASET FOR RAG
 """
 class KoreanRAGDataset(Dataset):
-    def __init__(self, items: List[Dict], retriever: HybridRerankRetriever, tokenizer, max_len: int = 2048):
-        self.items = items
-        self.retriever = retriever
+    def __init__(self, cached_items: List[Dict], tokenizer, max_len: int = 2048):
+        self.items = cached_items
         self.tokenizer = tokenizer
         self.max_len = max_len
 
     def __len__(self):
         return len(self.items)
 
-    def _prompt(self, question: str, qtype: str) -> str:
-        q_emb = self.retriever.bi_encoder.encode([question], normalize_embeddings=True)
-        scores = (q_emb @ self.retriever.embeddings.T)[0]
-        top_idx = np.argsort(scores)[-7:][::-1] # Use 7 sentences for training prompt
-        ctx = [self.retriever.sentences[i] for i in top_idx]
-
-        ctx_block = "\n".join(f"- {c}" for c in ctx)
+    def __getitem__(self, idx):
+        item = self.items[idx]
+        q = item["question"]
+        qtype = item["type"]
+        a = item["answer"]
+        ctx_block = item["context"]
         inst = INST.get(qtype, INST["서술형"])
-        return (
+
+        prompt = (
             f"{PROMPT}\n\n"
             f"[참고 문헌]\n{ctx_block}\n\n"
             f"[질문 유형]\n{qtype}\n\n"
-            f"[질문]\n{question}\n\n"
+            f"[질문]\n{q}\n\n"
             f"{inst}\n\n답변:"
         )
-
-    def __getitem__(self, idx):
-        sample = self.items[idx]
-        q = sample["input"]["question"]
-        qtype = sample["input"].get("type", "서술형")
-        a = sample["output"]["answer"]
-        text = self._prompt(q, qtype) + " " + a
+        
+        text = prompt + " " + a
         tok = self.tokenizer(text, truncation=True, max_length=self.max_len, padding="max_length")
         tok["labels"] = tok["input_ids"].copy()
         return {k: torch.tensor(v) for k, v in tok.items()}
+
+def preprocess_and_cache_dataset(data: List[Dict], retriever: HybridRerankRetriever, cache_path: str) -> List[Dict]:
+    if os.path.exists(cache_path):
+        print(f"Loading cached data from {cache_path}")
+        return torch.load(cache_path)
+
+    print(f"Preprocessing and caching data to {cache_path}...")
+    questions = [item['input']['question'] for item in data]
+    
+    # Use the batched query for efficiency
+    retrieved_contexts = retriever.query_batch(questions, top_k=7)
+
+    cached_data = []
+    for item, contexts in tqdm(zip(data, retrieved_contexts), total=len(data), desc="Caching"):
+        ctx_block = "\n".join(f"- {c}" for c in contexts)
+        cached_data.append({
+            "question": item["input"]["question"],
+            "type": item["input"].get("type", "서술형"),
+            "answer": item["output"]["answer"],
+            "context": ctx_block
+        })
+
+    torch.save(cached_data, cache_path)
+    print("Caching complete.")
+    return cached_data
 
 """
 LOAD JSON DATA
@@ -264,6 +313,12 @@ def train(args):
     train_data = load_json(args.train_path)
     dev_data = load_json(args.dev_path) if args.dev_path else train_data[: max(1, len(train_data) // 10)]
 
+    # Preprocess and cache datasets
+    train_cache_path = os.path.join(args.output_dir, "train_cache.pt")
+    dev_cache_path = os.path.join(args.output_dir, "dev_cache.pt")
+    cached_train_data = preprocess_and_cache_dataset(train_data, retriever, train_cache_path)
+    cached_dev_data = preprocess_and_cache_dataset(dev_data, retriever, dev_cache_path)
+
     model, tokenizer = load_base_model(args.model_name, token=token)
     model.config.use_cache = False
 
@@ -280,8 +335,8 @@ def train(args):
     model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
 
-    train_ds = KoreanRAGDataset(train_data, retriever, tokenizer)
-    eval_ds = KoreanRAGDataset(dev_data, retriever, tokenizer)
+    train_ds = KoreanRAGDataset(cached_train_data, tokenizer)
+    eval_ds = KoreanRAGDataset(cached_dev_data, tokenizer)
     
     early_stopping_callback = EarlyStoppingCallback(early_stopping_patience=3)
 
@@ -323,10 +378,16 @@ INFERENCE
 def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
     obj = torch.load(os.path.join(saved_dir, "retriever.pt"), map_location="cpu")
     sentences = obj.get("sentences", obj.get("passages"))
-    ret = HybridRerankRetriever(sentences)
-    ret.embeddings = obj["embeddings"]
-    ret.sent_tokens = obj.get("sent_tokens", obj.get("pass_tokens"))
-    ret.bm25 = BM25Okapi(ret.sent_tokens)
+    embeddings = obj["embeddings"]
+    sent_tokens = obj.get("sent_tokens", obj.get("pass_tokens"))
+    
+    # Ensure embeddings are float32 numpy array
+    if isinstance(embeddings, torch.Tensor):
+        embeddings = embeddings.cpu().numpy()
+    if embeddings.dtype != np.float32:
+        embeddings = embeddings.astype(np.float32)
+
+    ret = HybridRerankRetriever(sentences, embeddings=embeddings, sent_tokens=sent_tokens)
     return ret
 
 
@@ -436,7 +497,7 @@ def main():
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="RAG10_ckpt")
-    p.add_argument("--batch", type=int, default=1)
+    p.add_argument("--batch", type=int, default=16)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--grad_accum", type=int, default=8)
     p.add_argument("--max_len", type=int, default=2048)
