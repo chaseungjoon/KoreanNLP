@@ -441,12 +441,7 @@ def predict(args):
             batch_data = data[i:i+args.batch]
             batch_questions = [sample["input"]["question"] for sample in batch_data]
             
-            print("--- Calling retriever.query_batch ---")
-            start_time = time.time()
             batch_contexts = retriever.query_batch(batch_questions, top_k=6, hybrid_k=35, alpha=0.5)
-            retrieval_time = time.time() - start_time
-            print(f"--- Retrieval took: {retrieval_time:.2f}s ---")
-
             prompts = []
             for sample, ctx in zip(batch_data, batch_contexts):
                 q = sample["input"]["question"]
@@ -462,15 +457,8 @@ def predict(args):
                     f"{inst}\n\n"
                     f"답변:"
                 )
-            
-            print("--- Prompts created ---")
-            start_time = time.time()
-            inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=1536).to(model.device)
-            tokenization_time = time.time() - start_time
-            print(f"--- Tokenizer finished in {tokenization_time:.2f}s ---")
 
-            print("--- Calling model.generate() ---")
-            start_time = time.time()
+            inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=1536).to(model.device)
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
@@ -483,8 +471,6 @@ def predict(args):
                     do_sample=True,
                     use_cache=True
                 )
-            generation_time = time.time() - start_time
-            print(f"--- Generation took: {generation_time:.2f}s ---")
 
             texts = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
 
