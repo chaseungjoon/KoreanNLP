@@ -3,4 +3,4 @@ python RAG_11.py \
   --train_path korean_language_rag_V1.0_train.json \
   --dev_path   korean_language_rag_V1.0_dev.json \
   --test_path  korean_language_rag_V1.0_test.json \
-  --resume_from_checkpoint RAG11_ckpt/checkpoint-114
+  --resume_from_checkpoint RAG11_ckpt/checkpoint-114 \

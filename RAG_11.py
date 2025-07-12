@@ -634,42 +634,60 @@ def predict(args):
     results = []
     
     with torch.no_grad():
-        for i, sample in enumerate(tqdm(test_data, desc="Generating")):
-            question = sample["input"]["question"]
-            qtype = sample["input"].get("type", "서술형")
+        for i in tqdm(range(0, len(test_data), args.batch_size), desc="Generating", unit="batch"):
+            batch_samples = test_data[i:i+args.batch_size]
             
-            contexts = retriever.retrieve(question, top_k=5)
+            # Batch retrieval
+            batch_questions = [sample["input"]["question"] for sample in batch_samples]
+            batch_contexts = retriever.batch_retrieve(batch_questions, top_k=5)
             
-            inst_data = INSTRUCTIONS.get(qtype, INSTRUCTIONS["서술형"])
-            context_block = "\n".join(f"참고자료 {i+1}: {ctx}" for i, ctx in enumerate(contexts))
-            
-            prompt = f"""{SYSTEM_PROMPT}
+            # Create batch prompts
+            batch_prompts = []
+            for j, sample in enumerate(batch_samples):
+                question = sample["input"]["question"]
+                qtype = sample["input"].get("type", "서술형")
+                contexts = batch_contexts[j]
+                
+                inst_data = INSTRUCTIONS.get(qtype, INSTRUCTIONS["서술형"])
+                context_block = "\n".join(f"참고자료 {k+1}: {ctx}" for k, ctx in enumerate(contexts))
+                
+                prompt = f"""{SYSTEM_PROMPT}
 
-            [참고 문헌]
-            {context_block}
+[참고 문헌]
+{context_block}
+
+[질문 유형]: {qtype}
+[지침]: {inst_data['instruction']}
+
+[질문]: {question}
+
+답변:"""
+                batch_prompts.append(prompt)
             
-            [질문 유형]: {qtype}
-            [지침]: {inst_data['instruction']}
+            # Batch tokenization
+            inputs = tokenizer(batch_prompts, return_tensors="pt", max_length=args.max_length-200, 
+                             truncation=True, padding=True).to(model.device)
             
-            [질문]: {question}
-            
-            답변:"""
-            
-            inputs = tokenizer(prompt, return_tensors="pt", max_length=1800, truncation=True).to(model.device)
+            # Batch generation
             outputs = model.generate(
                 **inputs,
                 **generation_config
             )
             
-            response = tokenizer.decode(outputs[0][inputs.input_ids.shape[-1]:], skip_special_tokens=True)
+            # Batch decoding
+            responses = tokenizer.batch_decode(outputs[:, inputs.input_ids.shape[-1]:], skip_special_tokens=True)
             
-            answer = advanced_postprocess(response, qtype)
-            
-            results.append({
-                "id": sample["id"],
-                "input": sample["input"],
-                "output": {"answer": answer}
-            })
+            # Process batch results
+            for j, response in enumerate(responses):
+                sample = batch_samples[j]
+                qtype = sample["input"].get("type", "서술형")
+                answer = advanced_postprocess(response, qtype)
+                
+                results.append({
+                    "id": sample["id"],
+                    "input": sample["input"],
+                    "output": {"answer": answer}
+                })
     
     print("Saving results...")
     with open(args.output_path, "w", encoding="utf-8") as f:
@@ -689,10 +707,10 @@ def main():
     parser.add_argument("--train_path")
     parser.add_argument("--dev_path")
     parser.add_argument("--output_dir", default="RAG11_ckpt")
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=16)
-    parser.add_argument("--max_length", type=int, default=2048)
+    parser.add_argument("--max_length", type=int, default=1024)
     
     # Prediction args
     parser.add_argument("--test_path")
