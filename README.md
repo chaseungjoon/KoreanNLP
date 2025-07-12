@@ -107,6 +107,6 @@ chmod +x predict && ./predict
 * Retriever : RAG_8 Ver.
 * Early stopping
 
-|                     평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
-|:----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
-|     <span style="color:green">****</span>      |             |         |           |  
+|                          평가 점수                           |      Exact Match      |      BLEURT       | BERTScore | ROUGE-1 
+|:--------------------------------------------------------:|:---------------------:|:-----------------:|:---------:|:---:|
+|     <span style="color:green">**49.4470553**</span>      |      50.6024096       |    46.5091527     |     70.6664575      |  27.6994927
