@@ -1,15 +1,4 @@
 """
-RAG_11 - Advanced Korean RAG System
-Target: 60+ points
-
-Key Improvements:
-1. Advanced Multi-Vector Retrieval with Query Expansion
-2. Multi-Stage Reranking Pipeline  
-3. Sophisticated Prompt Engineering with Chain-of-Thought
-4. Optimized for A100 GPU
-5. Enhanced Korean Text Processing
-6. Self-Consistency and Verification
-
 HOW TO RUN:
 1. Install dependencies: chmod +x setup && ./setup
 2. Run: chmod +x run && ./run
