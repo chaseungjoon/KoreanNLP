@@ -13,7 +13,8 @@ chmod +x train && ./train
 chmod +x predict && ./predict
 """
 
-import argparse, json, os, pathlib, warnings, re
+import argparse, json, os, pathlib, warnings, re, time
+import faiss
 from tqdm import tqdm
 from typing import List, Dict, Optional
 import torch
@@ -101,7 +102,7 @@ def split_into_sentences(text: str) -> List[str]:
 HYBRID RETRIEVAL + RERANKING
 """
 class HybridRerankRetriever:
-    def __init__(self, sentences: List[str], sbert_model: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS", reranker_model: str = "bongsoo/klue-cross-encoder-v1", batch: int = 64, embeddings: Optional[np.ndarray] = None, sent_tokens: Optional[List[List[str]]] = None):
+    def __init__(self, sentences: List[str], sbert_model: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS", reranker_model: str = "bongsoo/klue-cross-encoder-v1", batch: int = 32, embeddings: Optional[np.ndarray] = None, sent_tokens: Optional[List[List[str]]] = None):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.sentences = sentences
         
@@ -111,7 +112,20 @@ class HybridRerankRetriever:
         if embeddings is not None:
             self.embeddings = embeddings
         else:
-            self.embeddings = self.bi_encoder.encode(self.sentences, batch_size=batch, show_progress_bar=True, normalize_embeddings=True)
+            print(f"Encoding {len(self.sentences)} sentences...")
+            self.embeddings = self.bi_encoder.encode(self.sentences, batch_size=batch, show_progress_bar=True, normalize_embeddings=True, convert_to_numpy=True)
+            self.embeddings = self.embeddings.astype(np.float32)
+        
+        if self.embeddings.shape[0] > 50000:
+            nlist = min(100, int(np.sqrt(self.embeddings.shape[0])))
+            quantizer = faiss.IndexFlatIP(self.embeddings.shape[1])
+            self.index = faiss.IndexIVFFlat(quantizer, self.embeddings.shape[1], nlist)
+            self.index.train(self.embeddings)
+            self.index.add(self.embeddings)
+            self.index.nprobe = min(10, nlist // 4)
+        else:
+            self.index = faiss.IndexFlatIP(self.embeddings.shape[1])
+            self.index.add(self.embeddings)
         
         if sent_tokens is not None:
             self.sent_tokens = sent_tokens
@@ -142,50 +156,40 @@ class HybridRerankRetriever:
         
         return [doc for _, doc in reranked_results[:top_k]]
     
-    def query_batch(self, questions: List[str], top_k: int = 7, hybrid_k: int = 75, alpha: float = 0.5) -> List[List[str]]:
+    def query_batch(self, questions: List[str], top_k: int = 5, hybrid_k: int = 20, alpha: float = 0.5) -> List[List[str]]:
+        if len(questions) > 16:
+            results = []
+            for i in range(0, len(questions), 16):
+                batch = questions[i:i+16]
+                batch_results = self.query_batch(batch, top_k, hybrid_k, alpha)
+                results.extend(batch_results)
+            return results
+            
         bm25_scores_list = [self.bm25.get_scores(ko_tokenize(q)) for q in questions]
         bm25_scores_batch = np.array(bm25_scores_list)
 
-        q_embs = self.bi_encoder.encode(questions, normalize_embeddings=True, show_progress_bar=True)
-        sbert_scores_batch = q_embs @ self.embeddings.T
-
-        min_bm25 = np.min(bm25_scores_batch, axis=1, keepdims=True)
-        max_bm25 = np.max(bm25_scores_batch, axis=1, keepdims=True)
-        norm_bm25 = (bm25_scores_batch - min_bm25) / (max_bm25 - min_bm25 + 1e-6)
-
-        min_sbert = np.min(sbert_scores_batch, axis=1, keepdims=True)
-        max_sbert = np.max(sbert_scores_batch, axis=1, keepdims=True)
-        norm_sbert = (sbert_scores_batch - min_sbert) / (max_sbert - min_sbert + 1e-6)
-
-        hybrid_scores_batch = alpha * norm_bm25 + (1 - alpha) * norm_sbert
-
-        hybrid_top_indices_batch = np.argsort(hybrid_scores_batch, axis=1)[:, -hybrid_k:]
-        hybrid_top_indices_batch = np.flip(hybrid_top_indices_batch, axis=1)
-
-        all_cross_inputs = []
-        query_doc_counts = []
-        original_docs = []
-
-        for i, question in enumerate(questions):
-            indices = hybrid_top_indices_batch[i]
-            hybrid_docs = [self.sentences[idx] for idx in indices]
-            original_docs.append(hybrid_docs)
-            cross_inputs = [[question, doc] for doc in hybrid_docs]
-            all_cross_inputs.extend(cross_inputs)
-            query_doc_counts.append(len(cross_inputs))
-
-        all_cross_scores = self.cross_encoder.predict(all_cross_inputs, show_progress_bar=True)
+        q_embs = self.bi_encoder.encode(questions, normalize_embeddings=True, show_progress_bar=False, batch_size=16, convert_to_numpy=True).astype(np.float32)
+        
+        sbert_scores_batch, sbert_indices_batch = self.index.search(q_embs, min(hybrid_k * 2, self.embeddings.shape[0]))
 
         results = []
-        current_idx = 0
-        for i, count in enumerate(query_doc_counts):
-            cross_scores = all_cross_scores[current_idx : current_idx + count]
-            docs_for_query = original_docs[i]
+        for i, question in enumerate(questions):
+            top_indices = sbert_indices_batch[i][:hybrid_k]
+            bm25_scores = bm25_scores_list[i]
+            sbert_scores = sbert_scores_batch[i][:hybrid_k]
             
-            reranked_results = sorted(zip(cross_scores, docs_for_query), key=lambda x: x[0], reverse=True)
-            results.append([doc for _, doc in reranked_results[:top_k]])
+            norm_bm25 = (bm25_scores[top_indices] - np.min(bm25_scores)) / (np.max(bm25_scores) - np.min(bm25_scores) + 1e-6)
+            norm_sbert = (sbert_scores - np.min(sbert_scores)) / (np.max(sbert_scores) - np.min(sbert_scores) + 1e-6)
             
-            current_idx += count
+            hybrid_scores = alpha * norm_bm25 + (1 - alpha) * norm_sbert
+            sorted_idx = np.argsort(hybrid_scores)[::-1]
+            
+            top_docs = [self.sentences[top_indices[idx]] for idx in sorted_idx]
+            
+            cross_inputs = [[question, doc] for doc in top_docs]
+            cross_scores = self.cross_encoder.predict(cross_inputs, show_progress_bar=False, batch_size=8)
+            reranked = sorted(zip(cross_scores, top_docs), key=lambda x: x[0], reverse=True)
+            results.append([doc for _, doc in reranked[:top_k]])
 
         return results
 
@@ -193,7 +197,7 @@ class HybridRerankRetriever:
 DATASET FOR RAG
 """
 class KoreanRAGDataset(Dataset):
-    def __init__(self, cached_items: List[Dict], tokenizer, max_len: int = 2048):
+    def __init__(self, cached_items: List[Dict], tokenizer, max_len: int = 1536):
         self.items = cached_items
         self.tokenizer = tokenizer
         self.max_len = max_len
@@ -230,11 +234,11 @@ def preprocess_and_cache_dataset(data: List[Dict], retriever: HybridRerankRetrie
     print(f"Preprocessing and caching data to {cache_path}...")
     questions = [item['input']['question'] for item in data]
     
-    retrieved_contexts = retriever.query_batch(questions, top_k=7)
+    retrieved_contexts = retriever.query_batch(questions, top_k=5)
 
     cached_data = []
     for item, contexts in tqdm(zip(data, retrieved_contexts), total=len(data), desc="Caching"):
-        ctx_block = "\n".join(f"- {c}" for c in contexts)
+        ctx_block = "\n".join(f"- {c[:300]}" for c in contexts)
         cached_data.append({
             "question": item["input"]["question"],
             "type": item["input"].get("type", "서술형"),
@@ -259,10 +263,19 @@ LOAD BASE MODEL
 def load_base_model(name: str, load_in_4bit: bool = True, token: Optional[str] = None):
     bnb_cfg = None
     if load_in_4bit:
-        bnb_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
-                                     bnb_4bit_quant_type="nf4")
+        bnb_cfg = BitsAndBytesConfig(
+            load_in_4bit=True, 
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True
+        )
     model = AutoModelForCausalLM.from_pretrained(
-        name, device_map="auto", trust_remote_code=True, quantization_config=bnb_cfg, token=token
+        name, 
+        device_map="auto", 
+        trust_remote_code=True, 
+        quantization_config=bnb_cfg, 
+        token=token,
+        torch_dtype=torch.bfloat16
     )
     tok = AutoTokenizer.from_pretrained(name, trust_remote_code=True, token=token)
     tok.pad_token = tok.eos_token
@@ -429,13 +442,16 @@ def predict(args):
             batch_questions = [sample["input"]["question"] for sample in batch_data]
             
             print("--- Calling retriever.query_batch ---")
-            batch_contexts = retriever.query_batch(batch_questions, top_k=7, hybrid_k=25, alpha=0.5)
-            
+            start_time = time.time()
+            batch_contexts = retriever.query_batch(batch_questions, top_k=6, hybrid_k=35, alpha=0.5)
+            retrieval_time = time.time() - start_time
+            print(f"--- Retrieval took: {retrieval_time:.2f}s ---")
+
             prompts = []
             for sample, ctx in zip(batch_data, batch_contexts):
                 q = sample["input"]["question"]
                 qtype = sample["input"].get("type", "서술형")
-                ctx_block = "".join(f"- {c}" for c in ctx)
+                ctx_block = "\n".join(f"- {c[:400]}" for c in ctx)
                 inst = INST.get(qtype, INST["서술형"])
 
                 prompts.append(
@@ -448,19 +464,27 @@ def predict(args):
                 )
             
             print("--- Prompts created ---")
-            inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=args.max_len - 1024).to(model.device)
-            print(f"--- Tokenizer finished ---")
+            start_time = time.time()
+            inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=1536).to(model.device)
+            tokenization_time = time.time() - start_time
+            print(f"--- Tokenizer finished in {tokenization_time:.2f}s ---")
 
             print("--- Calling model.generate() ---")
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=256,
-                eos_token_id=terminators,
-                pad_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.05,
-                temperature=0.7,
-                top_p=0.9
-            )
+            start_time = time.time()
+            with torch.no_grad():
+                outputs = model.generate(
+                    **inputs,
+                    max_new_tokens=200,
+                    eos_token_id=terminators,
+                    pad_token_id=tokenizer.eos_token_id,
+                    repetition_penalty=1.05,
+                    temperature=0.7,
+                    top_p=0.9,
+                    do_sample=True,
+                    use_cache=True
+                )
+            generation_time = time.time() - start_time
+            print(f"--- Generation took: {generation_time:.2f}s ---")
 
             texts = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
 
@@ -471,7 +495,7 @@ def predict(args):
                     "id": sample["id"],
                     "input": sample["input"],
                     "output": {"answer": answer}
-                }, ensure_ascii=False) + "")
+                }, ensure_ascii=False) + "\n")
 
     print(f"Saved predictions → {args.output_path}")
 
@@ -488,14 +512,15 @@ def main():
     p.add_argument("--train_path")
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="RAG10_ckpt")
-    p.add_argument("--batch", type=int, default=1)
+    p.add_argument("--batch", type=int, default=8)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--grad_accum", type=int, default=8)
-    p.add_argument("--max_len", type=int, default=2048)
+    p.add_argument("--max_len", type=int, default=1536)
 
     p.add_argument("--test_path")
     p.add_argument("--adapter_path", default="RAG10_ckpt")
     p.add_argument("--output_path", default="submission_RAG10.jsonl")
+    p.add_argument("--hybrid_k", type=int, default=35)
 
     args = p.parse_args()
     
@@ -522,6 +547,6 @@ def main():
              raise ValueError("Prediction mode requires a trained adapter or a pre-built retriever.pt file.")
         predict(args)
 
+
 if __name__ == "__main__":
     main()
-
