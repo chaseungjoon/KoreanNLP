@@ -3,5 +3,4 @@
 __pycache__
 *.jsonl
 hf_token.txt
-KNLP/
 RAG11_ckpt
