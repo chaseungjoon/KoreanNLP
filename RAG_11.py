@@ -1,5 +1,4 @@
 """
-HOW TO RUN:
 1. Install dependencies: chmod +x setup && ./setup
 2. Run: chmod +x run && ./run
 """
@@ -310,38 +309,37 @@ class EnhancedKoreanRAGDataset(Dataset):
             example = random.choice(examples)
             if qtype == "선다형" and "options" in example:
                 examples_block = f"""
-[예시]
-질문: {example['question']}
-{chr(10).join(example['options'])}
-답변: {example['answer']}
-추론: {example.get('reasoning', '')}
-"""
+                [예시]
+                질문: {example['question']}
+                {chr(10).join(example['options'])}
+                답변: {example['answer']}
+                추론: {example.get('reasoning', '')}
+                """
             else:
                 examples_block = f"""
-[예시]  
-질문: {example['question']}
-답변: {example['answer']}
-"""
-        
-        # Create comprehensive prompt
+                [예시]  
+                질문: {example['question']}
+                답변: {example['answer']}
+                """
+
         prompt = f"""{SYSTEM_PROMPT}
 
-[참고 문헌]
-{context_block}
-
-{examples_block}
-
-[질문 유형]: {qtype}
-[지침]: {instruction}
-
-[질문]: {question}
-
-답변을 단계별로 생각해보세요:
-1. 참고 문헌에서 관련 정보를 찾아보세요
-2. 질문 유형에 맞는 답변 형식을 확인하세요
-3. 논리적으로 답변을 구성하세요
-
-답변:"""
+                [참고 문헌]
+                {context_block}
+                
+                {examples_block}
+                
+                [질문 유형]: {qtype}
+                [지침]: {instruction}
+                
+                [질문]: {question}
+                
+                답변을 단계별로 생각해보세요:
+                1. 참고 문헌에서 관련 정보를 찾아보세요
+                2. 질문 유형에 맞는 답변 형식을 확인하세요
+                3. 논리적으로 답변을 구성하세요
+                
+                답변:"""
         
         return prompt
     
@@ -489,7 +487,7 @@ def train(args):
         bf16=True,
         overwrite_output_dir=True,
         dataloader_pin_memory=True,
-        gradient_checkpointing=True,  # Save memory
+        gradient_checkpointing=True,
         report_to="none",
         remove_unused_columns=False,
     )
@@ -653,31 +651,27 @@ def predict(args):
                 
                 prompt = f"""{SYSTEM_PROMPT}
 
-[참고 문헌]
-{context_block}
-
-[질문 유형]: {qtype}
-[지침]: {inst_data['instruction']}
-
-[질문]: {question}
-
-답변:"""
+                        [참고 문헌]
+                        {context_block}
+                        
+                        [질문 유형]: {qtype}
+                        [지침]: {inst_data['instruction']}
+                        
+                        [질문]: {question}
+                        
+                        답변:"""
                 batch_prompts.append(prompt)
             
-            # Batch tokenization
-            inputs = tokenizer(batch_prompts, return_tensors="pt", max_length=args.max_length-200, 
+            inputs = tokenizer(batch_prompts, return_tensors="pt", max_length=args.max_length-200,
                              truncation=True, padding=True).to(model.device)
-            
-            # Batch generation
+
             outputs = model.generate(
                 **inputs,
                 **generation_config
             )
             
-            # Batch decoding
             responses = tokenizer.batch_decode(outputs[:, inputs.input_ids.shape[-1]:], skip_special_tokens=True)
             
-            # Process batch results
             for j, response in enumerate(responses):
                 sample = batch_samples[j]
                 qtype = sample["input"].get("type", "서술형")
@@ -703,7 +697,6 @@ def main():
     parser.add_argument("--reference_path", default="reference.txt")
     parser.add_argument("--hf_token", default="hf_token.txt")
     
-    # Training args
     parser.add_argument("--train_path")
     parser.add_argument("--dev_path")
     parser.add_argument("--output_dir", default="RAG11_ckpt")
@@ -712,7 +705,6 @@ def main():
     parser.add_argument("--gradient_accumulation_steps", type=int, default=16)
     parser.add_argument("--max_length", type=int, default=1024)
     
-    # Prediction args
     parser.add_argument("--test_path")
     parser.add_argument("--adapter_path", default="RAG11_ckpt")
     parser.add_argument("--output_path", default="submission_RAG11.jsonl")
@@ -720,7 +712,6 @@ def main():
 
     args = parser.parse_args()
     
-    # Create output directories
     os.makedirs(args.output_dir, exist_ok=True)
     
     if args.mode == "train":
@@ -728,7 +719,6 @@ def main():
             raise ValueError("Training requires --train_path")
         train(args)
         
-        # Run prediction if test path provided
         if args.test_path:
             print("\nStarting prediction after training...")
             args.mode = "predict"
