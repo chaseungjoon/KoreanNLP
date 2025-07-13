@@ -616,7 +616,7 @@ def predict(args):
     test_data = load_json(args.test_path)
     
     generation_config = {
-        "max_new_tokens": 256,
+        "max_new_tokens": 512,
         "temperature": 0.7,
         "top_p": 0.9,
         "top_k": 50,
@@ -643,7 +643,7 @@ def predict(args):
             batch_prompts = []
             for j, sample in enumerate(batch_samples):
                 question = sample["input"]["question"]
-                qtype = sample["input"].get("type", "서술형")
+                qtype = sample["input"].get("question_type", sample["input"].get("type", "서술형"))
                 contexts = batch_contexts[j]
                 
                 inst_data = INSTRUCTIONS.get(qtype, INSTRUCTIONS["서술형"])
