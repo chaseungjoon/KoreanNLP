@@ -121,4 +121,4 @@ chmod +x predict && ./predict
 
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
-| <span style="color:green">****</span> |        |       |       | 
+| <span style="color:green">**16.5065031**</span> |    0.00     |   24.4582521    |   63.3902907    |  11.1904761
