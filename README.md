@@ -119,6 +119,8 @@ chmod +x predict && ./predict
 * Multi-Stage Reranking
 * Prompt Engineering w/ chain of thought
 
+-> ***Token generation error***
+
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
 | <span style="color:green">**16.5065031**</span> |    0.00     |   24.4582521    |   63.3902907    |  11.1904761
