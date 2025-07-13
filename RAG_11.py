@@ -600,7 +600,6 @@ def predict(args):
     print("Starting RAG_11 prediction...")
     
     token = get_token(args.hf_token)
-    
     print("Loading model...")
     model, tokenizer = load_model_and_tokenizer(args.model_name, token=token)
     
@@ -612,11 +611,10 @@ def predict(args):
     
     print("Loading retriever...")
     retriever = load_retriever_for_inference(args.adapter_path or pathlib.Path(args.reference_path).parent)
-    
     test_data = load_json(args.test_path)
     
     generation_config = {
-        "max_new_tokens": 512,
+        "max_new_tokens": 256,
         "temperature": 0.7,
         "top_p": 0.9,
         "top_k": 50,
@@ -625,69 +623,72 @@ def predict(args):
         "pad_token_id": tokenizer.pad_token_id,
         "eos_token_id": tokenizer.eos_token_id,
     }
-    
     hf_logging.set_verbosity_error()
     
     print("Generating predictions...")
-    results = []
-    
-    with torch.no_grad():
-        for i in tqdm(range(0, len(test_data), args.batch_size), desc="Generating", unit="batch"):
-            batch_samples = test_data[i:i+args.batch_size]
-            
-            # Batch retrieval
-            batch_questions = [sample["input"]["question"] for sample in batch_samples]
+    with open(args.output_path, "w", encoding="utf-8") as fout, torch.no_grad():
+        for i in tqdm(range(0, len(test_data), args.batch_size),
+                      desc="Generating", unit="batch"):
+            batch_samples = test_data[i: i + args.batch_size]
+
+            batch_questions = [s["input"]["question"] for s in batch_samples]
             batch_contexts = retriever.batch_retrieve(batch_questions, top_k=5)
-            
-            # Create batch prompts
+
             batch_prompts = []
             for j, sample in enumerate(batch_samples):
+                qtype = sample["input"].get("question_type",
+                                            sample["input"].get("type", "서술형"))
                 question = sample["input"]["question"]
-                qtype = sample["input"].get("question_type", sample["input"].get("type", "서술형"))
                 contexts = batch_contexts[j]
-                
+
                 inst_data = INSTRUCTIONS.get(qtype, INSTRUCTIONS["서술형"])
-                context_block = "\n".join(f"참고자료 {k+1}: {ctx}" for k, ctx in enumerate(contexts))
-                
-                prompt = f"""{SYSTEM_PROMPT}
+                context_block = "\n".join(
+                    f"참고자료 {k + 1}: {ctx}" for k, ctx in enumerate(contexts)
+                )
 
-                        [참고 문헌]
-                        {context_block}
-                        
-                        [질문 유형]: {qtype}
-                        [지침]: {inst_data['instruction']}
-                        
-                        [질문]: {question}
-                        
-                        답변:"""
+                prompt = (
+                    f"""{SYSTEM_PROMPT}
+
+                [참고 문헌]
+                {context_block}
+            
+                [질문 유형]: {qtype}
+                [지침]: {inst_data['instruction']}
+            
+                [질문]: {question}
+            
+                답변:""")
                 batch_prompts.append(prompt)
-            
-            inputs = tokenizer(batch_prompts, return_tensors="pt", max_length=args.max_length-200,
-                             truncation=True, padding=True).to(model.device)
 
-            outputs = model.generate(
-                **inputs,
-                **generation_config
+            inputs = tokenizer(
+                batch_prompts,
+                return_tensors="pt",
+                max_length=args.max_length - 200,
+                truncation=True,
+                padding=True,
+            ).to(model.device)
+
+            outputs = model.generate(**inputs, **generation_config)
+            start = inputs.input_ids.shape[-1]
+            responses = tokenizer.batch_decode(
+                outputs[:, start:], skip_special_tokens=True
             )
-            
-            responses = tokenizer.batch_decode(outputs[:, inputs.input_ids.shape[-1]:], skip_special_tokens=True)
-            
+
             for j, response in enumerate(responses):
                 sample = batch_samples[j]
-                qtype = sample["input"].get("type", "서술형")
+                qtype = sample["input"].get("question_type",
+                                            sample["input"].get("type", "서술형"))
                 answer = advanced_postprocess(response, qtype)
-                
-                results.append({
+
+                json_line = {
                     "id": sample["id"],
                     "input": sample["input"],
-                    "output": {"answer": answer}
-                })
-    
-    print("Saving results...")
-    with open(args.output_path, "w", encoding="utf-8") as f:
-        for result in results:
-            f.write(json.dumps(result, ensure_ascii=False) + "\n")
-    
+                    "output": {"answer": answer},
+                }
+                fout.write(json.dumps(json_line, ensure_ascii=False) + "\n")
+
+            fout.flush()
+
     print(f"Predictions saved to {args.output_path}")
 
 def main():
@@ -700,8 +701,8 @@ def main():
     parser.add_argument("--train_path")
     parser.add_argument("--dev_path")
     parser.add_argument("--output_dir", default="RAG11_ckpt")
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--batch_size", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=6)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=16)
     parser.add_argument("--max_length", type=int, default=1024)
     
