@@ -10,7 +10,6 @@ from peft import LoraConfig, get_peft_model, PeftModel, prepare_model_for_kbit_t
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from rank_bm25 import BM25Okapi
 import numpy as np
-import shutil
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
