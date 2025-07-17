@@ -124,3 +124,15 @@ chmod +x predict && ./predict
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
 | <span style="color:green">**16.5065031**</span> |    0.00     |   24.4582521    |   63.3902907    |  11.1904761
+
+### RAG_12 (10.8b)
+* Model : `yanolja/EEVE-Korean-Instruct-10.8B-v1.0`
+* Retriever : AdvancedKoreanRetriever
+    * Dense: `snunlp/KR-SBERT-V40K-klueNLI-augSTS`
+    * Reranking: `bongsoo/klue-cross-encoder-v1`
+* Two pass prompting
+* Ensemble voting
+
+|                      평가 점수                      | Exact Match | BLEURT | BERTScore | ROUGE-1 
+|:-----------------------------------------------:|:----------:|:------:|:---------:|:---:|
+| <span style="color:green">****</span> |            |        |           |  

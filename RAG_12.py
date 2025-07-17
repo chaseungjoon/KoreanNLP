@@ -120,7 +120,7 @@ class HybridRerankRetriever:
         
         self.bm25 = BM25Okapi(self.sent_tokens)
 
-    def query(self, question: str, top_k: int = 7, hybrid_k: int = 75, alpha: float = 0.5): # 3. Hyperparameter Tuning
+    def query(self, question: str, top_k: int = 7, hybrid_k: int = 75, alpha: float = 0.5):
         q_tok = ko_tokenize(question)
         bm25_scores = self.bm25.get_scores(q_tok)
         
@@ -152,7 +152,6 @@ class HybridRerankRetriever:
             return results
             
         bm25_scores_list = [self.bm25.get_scores(ko_tokenize(q)) for q in questions]
-        bm25_scores_batch = np.array(bm25_scores_list)
 
         q_embs = self.bi_encoder.encode(questions, normalize_embeddings=True, show_progress_bar=False, batch_size=16, convert_to_numpy=True).astype(np.float32)
         
@@ -199,8 +198,6 @@ class KoreanRAGDataset(Dataset):
         ctx_block = item["context"]
         inst = INST.get(qtype, INST["서술형"])
 
-        # Two-Pass Prompting
-        # Pass 1: Analysis
         analysis_prompt = (
             f"{PROMPT}\n\n"
             f"[참고 문헌]\n{ctx_block}\n\n"
@@ -208,7 +205,6 @@ class KoreanRAGDataset(Dataset):
             f"[지침] 참고 문헌을 바탕으로 질문에 답하기 위한 주요 규칙과 설명을 분석하여 서술하시오.\n\n분석:"
         )
 
-        # Pass 2: Final Answer
         final_prompt = (
             f"{PROMPT}\n\n"
             f"[참고 문헌]\n{ctx_block}\n\n"
@@ -277,13 +273,6 @@ def load_base_model(name: str, load_in_4bit: bool = True, token: Optional[str] =
     tok.pad_token = tok.eos_token
     return model, tok
 
-
-"""
-CUSTOM TRAINER FOR SAVING RETRIEVER
-"""
-
-
-
 """
 TRAINING
 """
@@ -320,8 +309,6 @@ def train(args):
 
     train_ds = KoreanRAGDataset(cached_train_data, tokenizer)
     eval_ds = KoreanRAGDataset(cached_dev_data, tokenizer)
-    
-    early_stopping_callback = EarlyStoppingCallback(early_stopping_patience=3)
 
     targs = TrainingArguments(
         output_dir=args.output_dir,
@@ -426,7 +413,6 @@ def predict(args):
             
             batch_contexts = retriever.query_batch(batch_questions, top_k=6, hybrid_k=35, alpha=0.5)
             
-            # Pass 1: Analysis
             analysis_prompts = []
             for sample, ctx in zip(batch_data, batch_contexts):
                 q = sample["input"]["question"]
@@ -453,7 +439,6 @@ def predict(args):
                 )
             analyses = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
 
-            # Pass 2: Final Answer with Ensemble
             final_prompts = []
             for sample, ctx, analysis in zip(batch_data, batch_contexts, analyses):
                 q = sample["input"]["question"]
@@ -486,9 +471,8 @@ def predict(args):
             texts = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
 
             for j in range(len(batch_data)):
-                # Ensemble Voting
                 responses = texts[j*3:(j+1)*3]
-                answer = max(set(responses), key=responses.count) # Majority vote
+                answer = max(set(responses), key=responses.count)
                 
                 final_answer = postprocess(answer)
                 sample = batch_data[j]
