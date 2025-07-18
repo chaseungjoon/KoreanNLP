@@ -119,7 +119,7 @@ chmod +x predict && ./predict
 * Multi-Stage Reranking
 * Prompt Engineering w/ chain of thought
 
--> ***Token generation error***
+<span style="color:red">***-> Token generation error (contaminated data)***</span>
 
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
@@ -132,6 +132,7 @@ chmod +x predict && ./predict
     * Reranking: `bongsoo/klue-cross-encoder-v1`
 * Two pass prompting
 * Ensemble voting
+* pre-Augmented training data
 
 |                      평가 점수                      | Exact Match | BLEURT | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:----------:|:------:|:---------:|:---:|
