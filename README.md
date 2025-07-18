@@ -119,7 +119,7 @@ chmod +x predict && ./predict
 * Multi-Stage Reranking
 * Prompt Engineering w/ chain of thought
 
-<span style="color:red">***-> Token generation error (contaminated data)***</span>
+<span style="color:red">***-> Token generation error (prompt contamination)***</span>
 
 |                      평가 점수                      | Exact Match | BLEURT  | BERTScore | ROUGE-1 
 |:-----------------------------------------------:|:-----------:|:-------:|:---------:|:---:|
