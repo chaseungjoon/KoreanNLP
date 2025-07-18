@@ -1,5 +1,5 @@
 python RAG_12.py \
   --mode train \
-  --train_path korean_language_rag_V1.0_train_augmented.json \
+  --train_path korean_language_rag_V1.0_train.json \
   --dev_path   korean_language_rag_V1.0_dev.json \
   --test_path  korean_language_rag_V1.0_test.json \

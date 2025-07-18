@@ -177,22 +177,14 @@ class KoreanRAGDataset(Dataset):
         ctx_block = item["context"]
         inst = INST.get(qtype, INST["서술형"])
 
-        analysis_prompt = (
+        # Use simple single-pass approach like RAG_8 to avoid contamination
+        text = (
             f"{PROMPT}\n\n"
             f"[참고 문헌]\n{ctx_block}\n\n"
             f"[질문]\n{q}\n\n"
-            f"[지침] 참고 문헌을 바탕으로 질문에 답하기 위한 주요 규칙과 설명을 분석하여 서술하시오.\n\n분석:"
+            f"{inst}\n\n답변: {a}"
         )
 
-        final_prompt = (
-            f"{PROMPT}\n\n"
-            f"[참고 문헌]\n{ctx_block}\n\n"
-            f"[분석 내용]\n{{ANALYSIS_PLACEHOLDER}}\n\n"
-            f"[질문]\n{q}\n\n"
-            f"{inst}\n\n답변:"
-        )
-
-        text = analysis_prompt + " " + final_prompt + " " + a
         tok = self.tokenizer(text, truncation=True, max_length=self.max_len, padding="max_length")
         tok["labels"] = tok["input_ids"].copy()
         return {k: torch.tensor(v) for k, v in tok.items()}
@@ -262,7 +254,7 @@ def train(args):
     sentences = split_into_sentences(reference_text)
     retriever = HybridRerankRetriever(sentences)
 
-    train_data = load_json("korean_language_rag_V1.0_train_augmented.json")
+    train_data = load_json(args.train_path)
     dev_data = load_json(args.dev_path) if args.dev_path else train_data[: max(1, len(train_data) // 10)]
 
     train_cache_path = os.path.join(args.output_dir, "train_cache.pt")
@@ -390,20 +382,23 @@ def predict(args):
             batch_data = data[i:i+args.batch]
             batch_questions = [sample["input"]["question"] for sample in batch_data]
             
-            batch_contexts = retriever.query_batch(batch_questions, top_k=6, hybrid_k=35, alpha=0.5)
+            batch_contexts = retriever.query_batch(batch_questions, top_k=5, hybrid_k=35, alpha=0.5)
             
-            analysis_prompts = []
+            # Use simple single-pass approach matching training
+            prompts = []
             for sample, ctx in zip(batch_data, batch_contexts):
                 q = sample["input"]["question"]
-                ctx_block = "\n".join(f"- {c[:400]}" for c in ctx)
-                analysis_prompts.append(
+                qtype = sample["input"].get("type", "서술형")
+                ctx_block = "\n".join(f"- {c[:300]}" for c in ctx)
+                inst = INST.get(qtype, INST["서술형"])
+                prompts.append(
                     f"{PROMPT}\n\n"
                     f"[참고 문헌]\n{ctx_block}\n\n"
                     f"[질문]\n{q}\n\n"
-                    f"[지침] 참고 문헌을 바탕으로 질문에 답하기 위한 주요 규칙과 설명을 분석하여 서술하시오.\n\n분석:"
+                    f"{inst}\n\n답변:"
                 )
             
-            inputs = tokenizer(analysis_prompts, return_tensors="pt", padding=True, truncation=True, max_length=1536).to(model.device)
+            inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=1536).to(model.device)
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
@@ -416,45 +411,11 @@ def predict(args):
                     do_sample=True,
                     use_cache=True
                 )
-            analyses = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
-
-            final_prompts = []
-            for sample, ctx, analysis in zip(batch_data, batch_contexts, analyses):
-                q = sample["input"]["question"]
-                qtype = sample["input"].get("type", "서술형")
-                ctx_block = "\n".join(f"- {c[:400]}" for c in ctx)
-                inst = INST.get(qtype, INST["서술형"])
-                final_prompts.append(
-                    f"{PROMPT}\n\n"
-                    f"[참고 문헌]\n{ctx_block}\n\n"
-                    f"[분석 내용]\n{analysis}\n\n"
-                    f"[질문]\n{q}\n\n"
-                    f"{inst}\n\n답변:"
-                )
-
-            inputs = tokenizer(final_prompts, return_tensors="pt", padding=True, truncation=True, max_length=1536).to(model.device)
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=400,
-                    eos_token_id=terminators,
-                    pad_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.05,
-                    temperature=0.7,
-                    top_p=0.9,
-                    do_sample=True,
-                    use_cache=True,
-                    num_return_sequences=3
-                )
             
             texts = tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
 
-            for j in range(len(batch_data)):
-                responses = texts[j*3:(j+1)*3]
-                answer = max(set(responses), key=responses.count)
-                
-                final_answer = postprocess(answer)
-                sample = batch_data[j]
+            for j, sample in enumerate(batch_data):
+                final_answer = postprocess(texts[j])
                 outf.write(json.dumps({
                     "id": sample["id"],
                     "input": sample["input"],
