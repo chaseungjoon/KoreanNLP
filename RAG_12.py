@@ -477,7 +477,7 @@ def main():
     p.add_argument("--dev_path")
     p.add_argument("--output_dir", default="RAG12_ckpt")
     p.add_argument("--batch", type=int, default=8)
-    p.add_argument("--epochs", type=int, default=6)
+    p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--grad_accum", type=int, default=8)
     p.add_argument("--max_len", type=int, default=1536)
 
