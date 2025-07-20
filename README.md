@@ -133,7 +133,8 @@ chmod +x predict && ./predict
 * Two pass prompting
 * Ensemble voting
 * pre-Augmented training data
+* Solved prompt contamination issue
 
-|                      평가 점수                      | Exact Match | BLEURT | BERTScore | ROUGE-1 
-|:-----------------------------------------------:|:----------:|:------:|:---------:|:---:|
-| <span style="color:green">****</span> |            |        |           |  
+|                      평가 점수                      |     Exact Match      |      BLEURT      |      BERTScore      | ROUGE-1 
+|:-----------------------------------------------:|:--------------------:|:----------------:|:-------------------:|:---:|
+| <span style="color:green">**44.6120409**</span> |      43.9759036      |    43.4687103    |     71.0231207      |  21.2527039
