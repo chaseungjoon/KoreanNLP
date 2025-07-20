@@ -332,47 +332,53 @@ def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
 
 
 def postprocess(text: str) -> str:
+    # Remove common stop markers first
     stop_markers = ["[참고 문헌]", "[질문]", "[지침]", "답변:", "참고:", "출처:", "관련 문서:", "추가 자료:"]
     for marker in stop_markers:
         if marker in text:
             text = text.split(marker)[0]
     
-    lines = text.strip().split('\n')
-    answer_lines = []
+    text = text.strip()
     
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-            
-        if any(pattern in line.lower() for pattern in ['참고', '출처', '문서', '자료', '기준', '규정', '법령']):
-            if not any(line.lower().startswith(pattern) for pattern in ['참고', '출처', '문서', '자료']):
-                answer_lines.append(line)
-            else:
-                break
-        else:
-            answer_lines.append(line)
-        
-        if line.endswith(('.', '!', '?')) and len(' '.join(answer_lines)) > 10:
-            break
-    
-    text = ' '.join(answer_lines).strip()
-
-    m = re.search(r'(["`])(.*?)\1\s*가\s*옳다', text)
-    if m:
-        quote_content = m.group(2).strip()
+    # For correction format answers, extract just the core answer
+    correction_match = re.search(r'(["`])(.*?)\1\s*가\s*옳다\.?\s*([^.]*\.)?', text)
+    if correction_match:
+        quote_content = correction_match.group(2).strip()
+        explanation = correction_match.group(3)
         corrected_sentence = f'\"{quote_content}\"가 옳다.'
-        explanation = text[m.end():].strip(' .')
-        if explanation and not any(pattern in explanation.lower() for pattern in ['참고', '출처', '문서']):
+        
+        # Only include brief explanation if it exists and is reasonable length
+        if explanation and len(explanation) < 200 and not any(pattern in explanation.lower() for pattern in ['한편', '따라서', '이러한', '다만', '예를 들어']):
             return f"{corrected_sentence} {explanation}"
         return corrected_sentence
-
-    text = re.sub(r'\s+', ' ', text).strip()
     
-    if not text or len(text) < 2:
+    # For other answers, find the first complete sentence that ends properly
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    if not sentences:
+        return text[:200] if len(text) > 200 else text
+    
+    # Take first sentence, or first two if first is very short
+    result = sentences[0].strip()
+    if len(result) < 20 and len(sentences) > 1:
+        second_sentence = sentences[1].strip()
+        # Only add second sentence if it's not repetitive explanation
+        if not any(pattern in second_sentence.lower() for pattern in ['따라서', '이러한', '한편', '다만', '예를 들어', '하지만', '그러나']):
+            result += ' ' + second_sentence
+    
+    # Final cleanup
+    result = re.sub(r'\s+', ' ', result).strip()
+    
+    # Ensure it ends properly
+    if result and not result.endswith(('.', '!', '?')):
+        # Find the last complete sentence
+        last_punct = max(result.rfind('.'), result.rfind('!'), result.rfind('?'))
+        if last_punct > len(result) * 0.5:  # If punctuation is in latter half
+            result = result[:last_punct + 1]
+    
+    if not result or len(result) < 2:
         return "답변을 생성하지 못했습니다."
         
-    return text
+    return result
 
 def predict(args):
     token = get_token(args.hf_token)
@@ -425,12 +431,12 @@ def predict(args):
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=400,
+                    max_new_tokens=150,  # Reduced to prevent over-generation
                     eos_token_id=terminators,
                     pad_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.05,
-                    temperature=0.7,
-                    top_p=0.9,
+                    repetition_penalty=1.1,  # Increased to reduce repetition
+                    temperature=0.6,  # Reduced for more focused answers
+                    top_p=0.85,  # Reduced for more focused answers
                     do_sample=True,
                     use_cache=True
                 )
