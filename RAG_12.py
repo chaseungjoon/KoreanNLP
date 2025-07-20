@@ -42,7 +42,6 @@ INST = {
     )
 }
 
-
 """
 HUGGINGFACE TOKEN RESOLVER
 """
@@ -68,7 +67,7 @@ HYBRID RETRIEVAL + RERANKING
 """
 class HybridRerankRetriever:
     def __init__(self, sentences: List[str], sbert_model: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS", reranker_model: str = "bongsoo/klue-cross-encoder-v1", batch: int = 32, embeddings: Optional[np.ndarray] = None, sent_tokens: Optional[List[List[str]]] = None):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cuda"
         self.sentences = sentences
         
         self.bi_encoder = SentenceTransformer(sbert_model, device=device)
@@ -77,7 +76,6 @@ class HybridRerankRetriever:
         if embeddings is not None:
             self.embeddings = embeddings
         else:
-            print(f"Encoding {len(self.sentences)} sentences...")
             self.embeddings = self.bi_encoder.encode(self.sentences, batch_size=batch, show_progress_bar=True, normalize_embeddings=True, convert_to_numpy=True)
             self.embeddings = self.embeddings.astype(np.float32)
         
@@ -96,7 +94,6 @@ class HybridRerankRetriever:
             self.sent_tokens = sent_tokens
         else:
             self.sent_tokens = [ko_tokenize(s) for s in self.sentences]
-        
         self.bm25 = BM25Okapi(self.sent_tokens)
 
     def query(self, question: str, top_k: int = 7, hybrid_k: int = 75, alpha: float = 0.5):
@@ -177,7 +174,6 @@ class KoreanRAGDataset(Dataset):
         ctx_block = item["context"]
         inst = INST.get(qtype, INST["서술형"])
 
-        # Use simple single-pass approach like RAG_8 to avoid contamination
         text = (
             f"{PROMPT}\n\n"
             f"[참고 문헌]\n{ctx_block}\n\n"
@@ -336,23 +332,44 @@ def load_retriever_for_inference(saved_dir: str) -> HybridRerankRetriever:
 
 
 def postprocess(text: str) -> str:
-    text = text.strip()
+    stop_markers = ["[참고 문헌]", "[질문]", "[지침]", "답변:", "참고:", "출처:", "관련 문서:", "추가 자료:"]
+    for marker in stop_markers:
+        if marker in text:
+            text = text.split(marker)[0]
     
-    if "답변:" in text:
-        text = text.split("답변:")[-1].strip()
+    lines = text.strip().split('\n')
+    answer_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        if any(pattern in line.lower() for pattern in ['참고', '출처', '문서', '자료', '기준', '규정', '법령']):
+            if not any(line.lower().startswith(pattern) for pattern in ['참고', '출처', '문서', '자료']):
+                answer_lines.append(line)
+            else:
+                break
+        else:
+            answer_lines.append(line)
+        
+        if line.endswith(('.', '!', '?')) and len(' '.join(answer_lines)) > 10:
+            break
+    
+    text = ' '.join(answer_lines).strip()
 
-    m = re.search(r'([""`])(.*?)\1\s*가\s*옳다', text)
+    m = re.search(r'(["`])(.*?)\1\s*가\s*옳다', text)
     if m:
         quote_content = m.group(2).strip()
         corrected_sentence = f'\"{quote_content}\"가 옳다.'
         explanation = text[m.end():].strip(' .')
-        if explanation:
+        if explanation and not any(pattern in explanation.lower() for pattern in ['참고', '출처', '문서']):
             return f"{corrected_sentence} {explanation}"
         return corrected_sentence
 
     text = re.sub(r'\s+', ' ', text).strip()
     
-    if not text:
+    if not text or len(text) < 2:
         return "답변을 생성하지 못했습니다."
         
     return text
@@ -372,6 +389,13 @@ def predict(args):
         tokenizer.eos_token_id,
         tokenizer.convert_tokens_to_ids("<|eot_id|>")
     ]
+    
+    # Add tokens that commonly lead to contamination
+    contamination_tokens = ["[참고", "참고:", "출처:", "문서:", "자료:", "기준:", "규정:"]
+    for token in contamination_tokens:
+        token_id = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(token))
+        if token_id and token_id[0] not in terminators:
+            terminators.append(token_id[0])
 
     retriever = load_retriever_for_inference(args.adapter_path or pathlib.Path(args.reference_path).parent)
     data = load_json(args.test_path)
@@ -384,7 +408,6 @@ def predict(args):
             
             batch_contexts = retriever.query_batch(batch_questions, top_k=5, hybrid_k=35, alpha=0.5)
             
-            # Use simple single-pass approach matching training
             prompts = []
             for sample, ctx in zip(batch_data, batch_contexts):
                 q = sample["input"]["question"]
